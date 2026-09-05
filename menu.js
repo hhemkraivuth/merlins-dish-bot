@@ -28,7 +28,7 @@ const MENU = [
   { id: "ragu", name: "Noir Ragu + Pasta", price: 225 },
   { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165 },
   { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165 },
-  { id: "mushroom_soup", name: "Mushroom Soup", price: 165 },
+  { id: "mushroom_soup", name: "Mushroom Soup", price: 1 },
 ];
 
 module.exports = MENU;

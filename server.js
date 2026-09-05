@@ -216,10 +216,26 @@ async function handleSlipImage(userId, replyToken, messageId) {
   const session = getSession(userId);
   const total = cartTotal(session.cart);
 
-  const stream = await client.getMessageContent(messageId);
-  const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  const imageBuffer = Buffer.concat(chunks);
+  let imageBuffer;
+  try {
+    const stream = await client.getMessageContent(messageId);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    imageBuffer = Buffer.concat(chunks);
+  } catch (err) {
+    console.error("Downloading slip image failed:", err.message);
+    await forwardForManualReview(userId, session, "Could not download the slip image.");
+    await client.pushMessage(userId, {
+      type: "text",
+      text: "We couldn't process that photo, so I've sent it to Merlin's Dish directly. We'll confirm with you shortly!",
+    });
+    return;
+  }
+
+  // From here on, every response uses pushMessage instead of replyMessage.
+  // This step calls an external API and can take a few seconds -- long
+  // enough for LINE's reply token to expire. Push messages have no such
+  // expiry, so the customer reliably gets a response either way.
 
   let result;
   try {
@@ -227,7 +243,7 @@ async function handleSlipImage(userId, replyToken, messageId) {
   } catch (err) {
     console.error("Thunder API request failed:", err.message);
     await forwardForManualReview(userId, session, "Slip check API did not respond.");
-    await client.replyMessage(replyToken, {
+    await client.pushMessage(userId, {
       type: "text",
       text: "We couldn't verify that automatically, so I've sent it to Merlin's Dish directly. We'll confirm with you shortly!",
     });
@@ -237,21 +253,21 @@ async function handleSlipImage(userId, replyToken, messageId) {
   if (!result.success) {
     const code = result.error && result.error.code;
     if (code === "SLIP_PENDING") {
-      await client.replyMessage(replyToken, {
+      await client.pushMessage(userId, {
         type: "text",
         text: "This slip is still processing on the bank's side. Please wait a couple of minutes and send it again.",
       });
       return;
     }
     if (code === "SLIP_NOT_FOUND" || code === "INVALID_IMAGE_FORMAT") {
-      await client.replyMessage(replyToken, {
+      await client.pushMessage(userId, {
         type: "text",
         text: "We couldn't read a slip in that photo. Please make sure the QR code area is clear and try again.",
       });
       return;
     }
     await forwardForManualReview(userId, session, `Slip check error: ${code || "unknown"}`);
-    await client.replyMessage(replyToken, {
+    await client.pushMessage(userId, {
       type: "text",
       text: "We couldn't verify that automatically, so I've sent it to Merlin's Dish directly. We'll confirm with you shortly!",
     });
@@ -261,7 +277,7 @@ async function handleSlipImage(userId, replyToken, messageId) {
   const slip = result.data;
 
   if (slip.isDuplicate) {
-    await client.replyMessage(replyToken, {
+    await client.pushMessage(userId, {
       type: "text",
       text: "This slip has already been used for a previous order. Please send the slip for this new payment.",
     });
@@ -269,7 +285,7 @@ async function handleSlipImage(userId, replyToken, messageId) {
   }
 
   if (slip.isAmountMatched === false) {
-    await client.replyMessage(replyToken, {
+    await client.pushMessage(userId, {
       type: "text",
       text:
         `The slip shows ฿${slip.amountInSlip}, but your order total is ฿${total}. ` +
@@ -281,7 +297,7 @@ async function handleSlipImage(userId, replyToken, messageId) {
   session.slipAmount = slip.amountInSlip;
   session.slipRef = slip.transRef;
   session.step = "awaiting_name";
-  await client.replyMessage(replyToken, {
+  await client.pushMessage(userId, {
     type: "text",
     text: "Payment verified! ✅ What name should we put on the order?",
   });

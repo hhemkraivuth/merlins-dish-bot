@@ -315,16 +315,22 @@ async function forwardForManualReview(userId, session, reason) {
   }
   const lines = cartLines(session.cart);
   const body = lines.map((l) => `${l.qty}x ${l.name}`).join(", ");
-  await client.pushMessage(target, {
-    type: "text",
-    text:
-      `⚠️ NEEDS MANUAL SLIP CHECK\n` +
-      `Customer: ${displayName}\n` +
-      `Order: ${body}\n` +
-      `Total: ฿${cartTotal(session.cart)}\n` +
-      `Reason: ${reason}\n` +
-      `Please check their chat directly in the LINE Official Account app.`,
-  });
+  try {
+    await client.pushMessage(target, {
+      type: "text",
+      text:
+        `⚠️ NEEDS MANUAL SLIP CHECK\n` +
+        `Customer: ${displayName}\n` +
+        `Order: ${body}\n` +
+        `Total: ฿${cartTotal(session.cart)}\n` +
+        `Reason: ${reason}\n` +
+        `Please check their chat directly in the LINE Official Account app.`,
+    });
+  } catch (err) {
+    // If this fails (wrong ID, bot not actually in that chat), don't let
+    // it also block the customer's fallback message below.
+    console.error("Failed to push manual-review message to internal target:", err.message);
+  }
   resetSession(userId);
 }
 
@@ -413,13 +419,17 @@ async function finishOrder(userId, replyToken, session) {
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (target) {
-    await client.pushMessage(target, {
-      type: "text",
-      text:
-        `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${total}\n${deliveryLine}\n\n` +
-        `Name: ${session.name}\nAddress: ${fullAddress}\nPhone: ${session.phone}\n\n` +
-        `Slip amount: ฿${session.slipAmount}\nSlip ref: ${session.slipRef}`,
-    });
+    try {
+      await client.pushMessage(target, {
+        type: "text",
+        text:
+          `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${total}\n${deliveryLine}\n\n` +
+          `Name: ${session.name}\nAddress: ${fullAddress}\nPhone: ${session.phone}\n\n` +
+          `Slip amount: ฿${session.slipAmount}\nSlip ref: ${session.slipRef}`,
+      });
+    } catch (err) {
+      console.error("Failed to push new-order message to internal target:", err.message);
+    }
   } else {
     console.warn("LINE_INTERNAL_TARGET_ID is not set -- order was not forwarded anywhere.");
   }
@@ -438,7 +448,7 @@ async function finishOrder(userId, replyToken, session) {
       ? "Delivery is free for you!"
       : "We'll confirm your delivery fee with you shortly.";
 
-  await client.replyMessage(replyToken, {
+  await client.pushMessage(userId, {
     type: "text",
     text: `All set! Your order is confirmed and on its way to the kitchen. ${customerDeliveryLine} Thank you for ordering from Merlin's Dish! 🍲`,
   });

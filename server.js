@@ -1158,14 +1158,15 @@ async function handleFollow(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text:
-      `Hi, welcome to Merlin's Dish! 🍲\n\n` +
-      `We're a small neighbourhood kitchen crafting slow cooked meals, made for homey comfort. 🤌🏼\n` +
-      `Ready to order? Just type "menu" anytime. ` +
-      `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait. ` +
-      `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km. ` +
-      `Got a question? Feel free to just ask, we're happy to help, ` +
-      `this isn't only for ordering! ` +
-      `Merlin's Dish `,
+      `Hello, welcome to the kitchen 🥘✨\n\n` +
+      `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
+      `Ready to order? Just type "menu" anytime.\n\n` +
+      `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait.\n` +
+      `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km.\n\n` +
+      `Got a question instead? Just ask, we're happy to help, this isn't only for ordering.\n\n` +
+      `Both ways, same magic.\n\n` +
+      `Comfort Food Made With Magic ✨\n` +
+      `—Merlin's Dish`,
   });
 }
 

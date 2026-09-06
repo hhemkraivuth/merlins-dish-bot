@@ -40,7 +40,7 @@ const MENU = [
   { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: null },
   { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: null },
   { id: "tpb", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
-  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: null },
+  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/bolognese.png?raw=true },
   { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null },
   { id: "cs", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
   { id: "bs", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },

@@ -516,9 +516,31 @@ function extractLatLngFromGoogleMapsUrl(url) {
   return null;
 }
 
+// "Place share" links (as opposed to "pin drop" links) resolve to a
+// q=<place name and address> parameter instead of coordinates. Getting
+// real lat/lng out of those needs a paid Google Places API call, which
+// this bot doesn't use -- so instead, pull out that readable address
+// text and use it directly, at least saving a re-type and giving a
+// clean, correctly formatted address rather than a customer's own typing.
+function extractAddressFromGoogleMapsUrl(url) {
+  const m = url.match(/[?&]q=([^&]+)/);
+  if (!m) return null;
+  const raw = m[1].replace(/\+/g, " ");
+  try {
+    const decoded = decodeURIComponent(raw);
+    // A bare "lat,lng" q= param isn't a readable address, skip it --
+    // extractLatLngFromGoogleMapsUrl already handles that case.
+    if (/^-?\d+\.\d+,-?\d+\.\d+$/.test(decoded.trim())) return null;
+    return decoded;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function handleGoogleMapsLink(userId, replyToken, url) {
   const session = getSession(userId);
   let coords = null;
+  let readableAddress = null;
   try {
     // Short links (maps.app.goo.gl) usually redirect to the real
     // maps.google.com URL that contains the coordinates. But Google
@@ -535,21 +557,16 @@ async function handleGoogleMapsLink(userId, replyToken, url) {
       validateStatus: () => true,
     });
     const finalUrl = (response.request && response.request.res && response.request.res.responseUrl) || url;
-    console.log(
-      `Maps link fetch: status=${response.status} finalUrl=${finalUrl} contentType=${response.headers["content-type"]}`
-    );
-    if (typeof response.data === "string") {
-      console.log(`Maps link body snippet (first 800 chars): ${response.data.slice(0, 800)}`);
-    } else {
-      console.log(`Maps link body was not a string (type: ${typeof response.data})`);
-    }
     coords = extractLatLngFromGoogleMapsUrl(finalUrl);
+    readableAddress = extractAddressFromGoogleMapsUrl(finalUrl);
 
     if (!coords && typeof response.data === "string") {
       const body = response.data;
       const embeddedUrlMatch = body.match(/https:\/\/www\.google\.com\/maps[^\s"'<>\\]+/);
       if (embeddedUrlMatch) {
-        coords = extractLatLngFromGoogleMapsUrl(decodeURIComponent(embeddedUrlMatch[0]));
+        const decodedEmbedded = decodeURIComponent(embeddedUrlMatch[0]);
+        coords = extractLatLngFromGoogleMapsUrl(decodedEmbedded);
+        if (!readableAddress) readableAddress = extractAddressFromGoogleMapsUrl(decodedEmbedded);
       }
       if (!coords) {
         coords = extractLatLngFromGoogleMapsUrl(body);
@@ -560,15 +577,17 @@ async function handleGoogleMapsLink(userId, replyToken, url) {
   }
 
   if (!coords) {
-    console.warn(`Could not extract coordinates from Google Maps link: ${url}`);
-    session.addressBase = url;
+    session.addressBase = readableAddress || url;
     session.needsManualFee = true;
     session.distanceKm = null;
     session.step = "awaiting_address_note";
     await pingManualFeeNeeded(null);
+    const note = readableAddress
+      ? `Got it: ${readableAddress}\n\nMerlin's Dish will confirm your delivery fee shortly.`
+      : `We couldn't read the location from that link, so Merlin's Dish will confirm your delivery fee shortly.`;
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `We couldn't read the location from that link, so Merlin's Dish will confirm your delivery fee shortly.\n\n${ADDRESS_NOTE_PROMPT}`,
+      text: `${note}\n\n${ADDRESS_NOTE_PROMPT}`,
       quickReply: cancelOnlyQuickReply(),
     });
     return;

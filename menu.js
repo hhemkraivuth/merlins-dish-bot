@@ -45,7 +45,7 @@ const MENU = [
   { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null, requiresPasta: true },
   { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
   { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
-  { id: "mushroom_soup", name: "Mushroom Soup", price: 165, category: "soup", image: null },
+  { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
 ];
 
 // Pasta/noodle types. Used two ways:

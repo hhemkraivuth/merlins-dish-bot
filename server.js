@@ -465,13 +465,16 @@ async function handleCheckout(userId, replyToken) {
   });
 }
 
+const ADDRESS_NOTE_PROMPT = "Please include unit number or a place to deliver for our rider eg. lobby";
+
 async function askLocationPrompt(replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text:
-      `Please share your delivery location so we can work out the fee:\n` +
-      `Tap the "+" icon > Location > choose your drop-off point.\n\n` +
-      `(If that's not easy, you can just type your address instead.)`,
+      `Please share your delivery location so we can work out the fee, any of these work:\n` +
+      `1. Tap the "+" icon > Location > choose your drop-off point\n` +
+      `2. Paste a Google Maps link to your location\n` +
+      `3. Type your full address`,
   });
 }
 
@@ -492,6 +495,59 @@ async function handleTimingSchedule(userId, replyToken) {
 }
 
 // ---------- delivery location & fee ----------
+
+// Pulls latitude/longitude out of a Google Maps URL, checking the most
+// specific pattern first (the exact pin, "!3d..!4d..") before falling
+// back to the map's center point ("@lat,long") or a "q=lat,long" param.
+function extractLatLngFromGoogleMapsUrl(url) {
+  let m = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+async function handleGoogleMapsLink(userId, replyToken, url) {
+  const session = getSession(userId);
+  let coords = null;
+  try {
+    // Short links (maps.app.goo.gl) redirect to the real maps.google.com
+    // URL that actually contains the coordinates -- follow that chain.
+    const response = await axios.get(url, {
+      maxRedirects: 10,
+      timeout: 8000,
+      headers: { "User-Agent": "Mozilla/5.0" },
+      validateStatus: () => true,
+    });
+    const finalUrl = (response.request && response.request.res && response.request.res.responseUrl) || url;
+    coords = extractLatLngFromGoogleMapsUrl(finalUrl) || extractLatLngFromGoogleMapsUrl(url);
+  } catch (err) {
+    console.error("Failed to resolve Google Maps link:", err.message);
+  }
+
+  if (!coords) {
+    session.addressBase = url;
+    session.needsManualFee = true;
+    session.distanceKm = null;
+    session.step = "awaiting_address_note";
+    await pingManualFeeNeeded(null);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `We couldn't read the location from that link, so Merlin's Dish will confirm your delivery fee shortly.\n\n${ADDRESS_NOTE_PROMPT}`,
+    });
+    return;
+  }
+
+  // From here it's identical to a shared location pin.
+  return handleLocationShared(userId, replyToken, {
+    latitude: coords.lat,
+    longitude: coords.lng,
+    address: null,
+    title: null,
+  });
+}
 
 async function handleLocationShared(userId, replyToken, message) {
   const session = getSession(userId);
@@ -524,7 +580,7 @@ async function handleLocationShared(userId, replyToken, message) {
       : "Noted -- Merlin's Dish will confirm your delivery fee shortly.";
   await client.replyMessage(replyToken, {
     type: "text",
-    text: `${feeMsg}\n\nAny extra details for the rider? (unit/floor number, landmark, etc. -- or just send "-" if none)`,
+    text: `${feeMsg}\n\n${ADDRESS_NOTE_PROMPT}`,
   });
 }
 
@@ -561,9 +617,10 @@ async function handleChangeAddress(userId, replyToken) {
     {
       type: "text",
       text:
-        `Please share your delivery location so we can work out the fee:\n` +
-        `Tap the "+" icon > Location > choose your drop-off point.\n\n` +
-        `(If that's not easy, you can just type your address instead.)`,
+        `Please share your delivery location so we can work out the fee, any of these work:\n` +
+        `1. Tap the "+" icon > Location > choose your drop-off point\n` +
+        `2. Paste a Google Maps link to your location\n` +
+        `3. Type your full address`,
     },
   ]);
 }
@@ -674,14 +731,13 @@ async function handlePayQr(userId, replyToken) {
     // Fall back to bank details rather than leaving the customer with
     // nothing at all.
     console.error("Sending QR payment message failed, falling back to bank details:", err.message);
-    await client.pushMessage(userId, {
-      type: "text",
-      text: `Total to pay: ฿${total}\n\nOur QR image isn't loading right now, please use bank transfer instead:`,
-    });
     const paymentInfo = process.env.BUSINESS_PAYMENT_INFO || "our bank account";
     await client.pushMessage(userId, {
       type: "text",
-      text: `Transfer to ${paymentInfo}, then send a photo of your payment slip here.`,
+      text:
+        `Total to pay: ฿${total}\n\n` +
+        `Our QR image isn't loading right now, please use bank transfer instead:\n` +
+        `Transfer to ${paymentInfo}, then send a photo of your payment slip here.`,
       quickReply: paymentAndCancelQuickReply(),
     });
   }
@@ -1136,13 +1192,18 @@ async function handleEvent(event) {
         session.step = "awaiting_location";
         return askLocationPrompt(event.replyToken);
 
-      case "awaiting_location":
-        // Customer typed an address instead of sharing a location pin.
-        // We can't calculate distance from text, so flag the fee as manual.
+      case "awaiting_location": {
+        const isMapsLink = /(google\.com\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(text);
+        if (isMapsLink) {
+          return handleGoogleMapsLink(userId, event.replyToken, text);
+        }
+        // Customer typed an address instead of sharing a location pin or
+        // a Maps link. We can't calculate distance from plain text, so
+        // flag the fee as manual.
         if (text.length < 5) {
           await client.replyMessage(event.replyToken, {
             type: "text",
-            text: "Please share your location (+  > Location), or type your full address.",
+            text: "Please share your location (+  > Location), paste a Google Maps link, or type your full address.",
           });
           return;
         }
@@ -1153,11 +1214,10 @@ async function handleEvent(event) {
         await pingManualFeeNeeded(null);
         await client.replyMessage(event.replyToken, {
           type: "text",
-          text:
-            "Noted -- Merlin's Dish will confirm your delivery fee shortly.\n\n" +
-            "Any extra details for the rider? (unit/floor number, landmark, etc. -- or just send \"-\" if none)",
+          text: `Noted -- Merlin's Dish will confirm your delivery fee shortly.\n\n${ADDRESS_NOTE_PROMPT}`,
         });
         return;
+      }
 
       case "awaiting_address_note":
         session.addressNote = text;

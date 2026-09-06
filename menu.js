@@ -36,15 +36,30 @@ const CATEGORIES = [
 
 const MENU = [
   { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },
-  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/rws.png?raw=true" },
-  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/dbs.png?raw=true" },
-  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/dbs.png?raw=true" },
-  { id: "tpb", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/tpb.png?raw=true" },
-  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/bolognese.png?raw=true" },
-  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/ragu.png?raw=true" },
-  { id: "cs", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/cs.png?raw=true" },
-  { id: "bs", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/bs.png?raw=true" },
-  { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
+  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: null },
+  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: null },
+  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: null },
+  { id: "rustic", name: "Rustic Beef Stew", price: 225, category: "mains", image: null },
+  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
+  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: null, requiresPasta: true },
+  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null, requiresPasta: true },
+  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
+  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
+  { id: "mushroom_soup", name: "Mushroom Soup", price: 165, category: "soup", image: null },
 ];
 
-module.exports = { MENU, CATEGORIES };
+// Pasta/noodle types. Used two ways:
+//  1. Mandatory choice for dishes marked "requiresPasta: true" above
+//     (Bolognese, Ragu) -- no extra charge, it's already in the price.
+//  2. Optional side add-on offered after adding a "mains" dish (a stew) --
+//     charged at SIDE_PASTA_PRICE. Edit the price there if it changes.
+const PASTA_OPTIONS = [
+  { id: "spaghetti", name: "Spaghetti" },
+  { id: "rigatoni", name: "Rigatoni" },
+  { id: "farfalle", name: "Farfalle" },
+  { id: "linguine", name: "Linguine" },
+  { id: "tubetti", name: "Tubetti" },
+];
+const SIDE_PASTA_PRICE = 45;
+
+module.exports = { MENU, CATEGORIES, PASTA_OPTIONS, SIDE_PASTA_PRICE };

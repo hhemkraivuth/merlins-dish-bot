@@ -266,11 +266,11 @@ function categoryActionsQuickReply() {
 }
 
 function qtyQuickReply(itemId) {
-  const items = [1, 2, 3, 4, 5].map((n) => ({
+  const items = [1, 2, 3].map((n) => ({
     type: "action",
     action: { type: "postback", label: `${n}`, data: `qty:${itemId}:${n}` },
   }));
-  items.push({ type: "action", action: { type: "postback", label: "6+", data: `qty:${itemId}:more` } });
+  items.push({ type: "action", action: { type: "postback", label: "4+", data: `qty:${itemId}:more` } });
   return { items };
 }
 
@@ -513,21 +513,39 @@ async function handleGoogleMapsLink(userId, replyToken, url) {
   const session = getSession(userId);
   let coords = null;
   try {
-    // Short links (maps.app.goo.gl) redirect to the real maps.google.com
-    // URL that actually contains the coordinates -- follow that chain.
+    // Short links (maps.app.goo.gl) usually redirect to the real
+    // maps.google.com URL that contains the coordinates. But Google
+    // often does this redirect via a JavaScript landing page rather
+    // than a clean HTTP redirect, which a server-side fetch never runs.
+    // So: try the final URL after any real HTTP redirects first, then
+    // fall back to scanning the raw page content for an embedded maps
+    // URL or coordinate pair, which is usually present as plain text
+    // even when the JS redirect itself doesn't fire for us.
     const response = await axios.get(url, {
       maxRedirects: 10,
       timeout: 8000,
-      headers: { "User-Agent": "Mozilla/5.0" },
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
       validateStatus: () => true,
     });
     const finalUrl = (response.request && response.request.res && response.request.res.responseUrl) || url;
-    coords = extractLatLngFromGoogleMapsUrl(finalUrl) || extractLatLngFromGoogleMapsUrl(url);
+    coords = extractLatLngFromGoogleMapsUrl(finalUrl);
+
+    if (!coords && typeof response.data === "string") {
+      const body = response.data;
+      const embeddedUrlMatch = body.match(/https:\/\/www\.google\.com\/maps[^\s"'<>\\]+/);
+      if (embeddedUrlMatch) {
+        coords = extractLatLngFromGoogleMapsUrl(decodeURIComponent(embeddedUrlMatch[0]));
+      }
+      if (!coords) {
+        coords = extractLatLngFromGoogleMapsUrl(body);
+      }
+    }
   } catch (err) {
     console.error("Failed to resolve Google Maps link:", err.message);
   }
 
   if (!coords) {
+    console.warn(`Could not extract coordinates from Google Maps link: ${url}`);
     session.addressBase = url;
     session.needsManualFee = true;
     session.distanceKm = null;

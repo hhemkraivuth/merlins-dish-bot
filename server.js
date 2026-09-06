@@ -16,13 +16,25 @@
 //  11. Bot sends the full summary to you                      (finishOrder)
 //
 // Admin (you) can text the bot directly from your own LINE account:
-//   "stock"              -> lists which items are marked sold out
-//   "soldout <item_id>"  -> hides that item from customers
-//   "instock <item_id>"  -> brings it back
+//   "stock"                 -> lists sold-out items and any tracked stock counts
+//   "soldout <item_id>"     -> hides that item from customers
+//   "instock <item_id>"     -> brings it back with no stock limit
+//   "setstock <item_id> <n>" -> sets a remaining-count limit for that item;
+//                                the bot won't let customers order more than
+//                                this, and it auto-decreases as orders come in
 // Item ids are the short codes in menu.js (e.g. rws_r, bolognese).
 //
+// Bolognese and Ragu require a pasta choice before they're added to the
+// cart (no extra charge). Any "mains" dish (a stew) gets offered pasta as
+// a paid side add-on right after it's added. Both use the PASTA_OPTIONS
+// list in menu.js.
+//
+// A customer can type "change address" (or the Thai equivalent) at any
+// point after giving their delivery location to redo just that step,
+// without losing their cart or anything else already collected.
+//
 // You should not need to touch this file for day-to-day changes.
-// Prices, dish names, and dish images live in menu.js instead.
+// Prices, dish names, categories, and dish images live in menu.js instead.
 // ============================================================
 
 require("dotenv").config();
@@ -30,7 +42,7 @@ const express = require("express");
 const line = require("@line/bot-sdk");
 const axios = require("axios");
 const FormData = require("form-data");
-const { MENU, CATEGORIES } = require("./menu");
+const { MENU, CATEGORIES, PASTA_OPTIONS, SIDE_PASTA_PRICE } = require("./menu");
 const { logOrder } = require("./sheetLogger");
 
 const config = {
@@ -57,19 +69,49 @@ function resetSession(userId) {
 // on restart -- if that ever matters to you, say so and we'll persist it.
 const soldOut = new Set();
 
+// Remaining stock per item, controlled by "setstock <id> <n>". If an item
+// has no entry here, it's treated as unlimited. Also resets on restart.
+const stockCount = new Map();
+function remainingStock(itemId) {
+  return stockCount.has(itemId) ? stockCount.get(itemId) : Infinity;
+}
+function isUnavailable(itemId) {
+  return soldOut.has(itemId) || remainingStock(itemId) <= 0;
+}
+
 // ---------- small helpers ----------
 
 function availableMenu() {
-  return MENU.filter((d) => !soldOut.has(d.id));
+  return MENU.filter((d) => !isUnavailable(d.id));
 }
+
+// Cart entries are keyed by a "line id", not just the item id, because the
+// same dish can appear as separate lines with different pasta choices
+// (e.g. two Bolognese lines, one with Spaghetti, one with Rigatoni).
+// Each entry looks like: { itemId, qty, pastaChoice }
+// A "side_pasta" itemId is a standalone add-on line, not a real MENU item.
 
 function cartLines(cart) {
   return Object.entries(cart)
-    .filter(([, qty]) => qty > 0)
-    .map(([id, qty]) => {
-      const dish = MENU.find((d) => d.id === id);
-      return { id, name: dish.name, price: dish.price, qty };
+    .filter(([, entry]) => entry.qty > 0)
+    .map(([lineId, entry]) => {
+      if (entry.itemId === "side_pasta") {
+        const pasta = PASTA_OPTIONS.find((p) => p.id === entry.pastaChoice);
+        return { id: lineId, name: `Side Pasta -- ${pasta ? pasta.name : entry.pastaChoice}`, price: SIDE_PASTA_PRICE, qty: entry.qty };
+      }
+      const dish = MENU.find((d) => d.id === entry.itemId);
+      const pasta = entry.pastaChoice ? PASTA_OPTIONS.find((p) => p.id === entry.pastaChoice) : null;
+      const name = pasta ? `${dish.name} (${pasta.name})` : dish.name;
+      return { id: lineId, name, price: dish.price, qty: entry.qty };
     });
+}
+
+// Total quantity of a given real menu item already sitting in the cart,
+// across all its pasta-choice variations -- used for stock checks.
+function qtyInCartForItem(cart, itemId) {
+  return Object.values(cart)
+    .filter((entry) => entry.itemId === itemId)
+    .reduce((sum, entry) => sum + entry.qty, 0);
 }
 
 function cartTotal(cart) {
@@ -98,7 +140,25 @@ function distanceKm(lat1, lon1, lat2, lon2) {
 // ---------- menu display (categories + Flex carousel) ----------
 
 function availableInCategory(catId) {
-  return MENU.filter((d) => d.category === catId && !soldOut.has(d.id));
+  return MENU.filter((d) => d.category === catId && !isUnavailable(d.id));
+}
+
+function pastaChoiceQuickReply(itemId) {
+  return {
+    items: PASTA_OPTIONS.map((p) => ({
+      type: "action",
+      action: { type: "postback", label: p.name, data: `pastafor:${itemId}:${p.id}` },
+    })),
+  };
+}
+
+function sidePastaQuickReply() {
+  const items = PASTA_OPTIONS.map((p) => ({
+    type: "action",
+    action: { type: "postback", label: p.name, data: `sidepasta:${p.id}` },
+  }));
+  items.push({ type: "action", action: { type: "postback", label: "No thanks", data: "sidepasta:no" } });
+  return { items };
 }
 
 function buildMenuFlex(catId) {
@@ -218,7 +278,7 @@ async function showCategoryMenu(userId, replyToken, catId) {
 
 async function handleAddPrompt(userId, replyToken, itemId) {
   const session = getSession(userId);
-  if (soldOut.has(itemId)) {
+  if (isUnavailable(itemId)) {
     const cat = session.lastCategory || (CATEGORIES[0] && CATEGORIES[0].id);
     await sendCategoryCarousel(replyToken, cat, "Sorry, that one's sold out today! Pick another below.");
     return;
@@ -232,11 +292,88 @@ async function handleAddPrompt(userId, replyToken, itemId) {
   });
 }
 
-async function addToCart(userId, replyToken, itemId, qty) {
+// Called once a quantity has been picked, whichever way (quick-reply
+// number, "6+" custom text, or a pasta choice for a bundled dish).
+// Handles the stock check, then branches: Bolognese/Ragu need a pasta
+// choice before they can be added; everything else adds straight away,
+// and a "mains" dish (a stew) gets offered pasta as a side add-on after.
+async function proceedAfterQty(userId, replyToken, itemId, qty) {
+  const dish = MENU.find((d) => d.id === itemId);
+  if (dish.requiresPasta) {
+    const session = getSession(userId);
+    session.pendingItemId = itemId;
+    session.pendingQty = qty;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Which pasta would you like with your "${dish.name}"?`,
+      quickReply: pastaChoiceQuickReply(itemId),
+    });
+    return;
+  }
+  await addToCart(userId, replyToken, itemId, qty, null, dish.category === "mains");
+}
+
+async function addToCart(userId, replyToken, itemId, qty, pastaChoice, offerSidePasta) {
   const session = getSession(userId);
-  session.cart[itemId] = (session.cart[itemId] || 0) + qty;
+
+  const remaining = remainingStock(itemId);
+  if (remaining !== Infinity) {
+    const already = qtyInCartForItem(session.cart, itemId);
+    const available = remaining - already;
+    const dish = MENU.find((d) => d.id === itemId);
+    if (available <= 0) {
+      session.pendingItemId = null;
+      session.pendingQty = null;
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Sorry, "${dish.name}" just sold out! You already have all we have left in your cart.`,
+        quickReply: cartActionsQuickReply(),
+      });
+      return;
+    }
+    if (qty > available) {
+      qty = available;
+      await client.pushMessage(userId, {
+        type: "text",
+        text: `Heads up, only ${available} of "${dish.name}" left, so we've added ${available} instead.`,
+      });
+    }
+  }
+
+  const lineId = pastaChoice ? `${itemId}:${pastaChoice}` : itemId;
+  const existing = session.cart[lineId];
+  session.cart[lineId] = existing
+    ? { ...existing, qty: existing.qty + qty }
+    : { itemId, qty, pastaChoice: pastaChoice || null };
   session.pendingItemId = null;
+  session.pendingQty = null;
   session.step = "ordering";
+
+  if (offerSidePasta) {
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `${cartSummaryText(session.cart)}\n\nWould you like to add pasta on the side? (+฿${SIDE_PASTA_PRICE})`,
+      quickReply: sidePastaQuickReply(),
+    });
+    return;
+  }
+
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: cartSummaryText(session.cart),
+    quickReply: cartActionsQuickReply(),
+  });
+}
+
+async function handleSidePasta(userId, replyToken, pastaId) {
+  const session = getSession(userId);
+  if (pastaId !== "no") {
+    const lineId = `side_pasta:${pastaId}`;
+    const existing = session.cart[lineId];
+    session.cart[lineId] = existing
+      ? { ...existing, qty: existing.qty + 1 }
+      : { itemId: "side_pasta", qty: 1, pastaChoice: pastaId };
+  }
   await client.replyMessage(replyToken, {
     type: "text",
     text: cartSummaryText(session.cart),
@@ -356,6 +493,26 @@ async function handleLocationShared(userId, replyToken, message) {
   });
 }
 
+async function handleChangeAddress(userId, replyToken) {
+  const session = getSession(userId);
+  session.addressBase = null;
+  session.address = null;
+  session.addressNote = null;
+  session.distanceKm = null;
+  session.needsManualFee = null;
+  session.step = "awaiting_location";
+  await client.replyMessage(replyToken, [
+    { type: "text", text: "No problem, let's update your delivery location." },
+    {
+      type: "text",
+      text:
+        `Please share your delivery location so we can work out the fee:\n` +
+        `Tap the "+" icon > Location > choose your drop-off point.\n\n` +
+        `(If that's not easy, you can just type your address instead.)`,
+    },
+  ]);
+}
+
 async function pingManualFeeNeeded(d) {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (!target) return;
@@ -393,6 +550,7 @@ async function showFinalSummary(userId, replyToken) {
     quickReply: {
       items: [
         { type: "action", action: { type: "postback", label: "✅ Confirm", data: "confirm_order" } },
+        { type: "action", action: { type: "postback", label: "📍 Change address", data: "change_address" } },
         { type: "action", action: { type: "postback", label: "✏️ Edit order", data: "edit_order" } },
       ],
     },
@@ -594,6 +752,15 @@ async function finishOrder(userId, replyToken, session) {
   const total = cartTotal(session.cart);
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
 
+  // Deduct from any tracked stock counts now that the order is confirmed.
+  for (const entry of Object.values(session.cart)) {
+    if (entry.itemId === "side_pasta") continue;
+    if (!stockCount.has(entry.itemId)) continue;
+    const remaining = stockCount.get(entry.itemId) - entry.qty;
+    stockCount.set(entry.itemId, remaining);
+    if (remaining <= 0) soldOut.add(entry.itemId);
+  }
+
   const fullAddress = session.addressBase
     ? `${session.addressBase}${session.addressNote && session.addressNote !== "-" ? " -- " + session.addressNote : ""}`
     : session.address || "(not provided)";
@@ -654,8 +821,29 @@ async function handleAdminCommand(replyToken, text) {
   const lower = text.toLowerCase().trim();
 
   if (lower === "stock") {
-    const body = MENU.map((d) => `${soldOut.has(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}`).join("\n");
+    const body = MENU.map((d) => {
+      const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
+      return `${isUnavailable(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}${countText}`;
+    }).join("\n");
     await client.replyMessage(replyToken, { type: "text", text: `Stock status:\n${body}` });
+    return true;
+  }
+  if (lower.startsWith("setstock ")) {
+    const parts = text.trim().split(/\s+/);
+    const id = parts[1];
+    const n = parseInt(parts[2], 10);
+    if (!MENU.find((d) => d.id === id)) {
+      await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${id}". Text "stock" to see valid ids.` });
+      return true;
+    }
+    if (isNaN(n)) {
+      await client.replyMessage(replyToken, { type: "text", text: `Please send a number, e.g. "setstock rws_r 10".` });
+      return true;
+    }
+    stockCount.set(id, n);
+    if (n <= 0) soldOut.add(id);
+    else soldOut.delete(id);
+    await client.replyMessage(replyToken, { type: "text", text: `"${id}" stock set to ${n}.` });
     return true;
   }
   if (lower.startsWith("soldout ")) {
@@ -671,7 +859,8 @@ async function handleAdminCommand(replyToken, text) {
   if (lower.startsWith("instock ")) {
     const id = text.trim().split(/\s+/)[1];
     soldOut.delete(id);
-    await client.replyMessage(replyToken, { type: "text", text: `"${id}" is back in stock.` });
+    stockCount.delete(id);
+    await client.replyMessage(replyToken, { type: "text", text: `"${id}" is back in stock (no limit set).` });
     return true;
   }
   return false;
@@ -754,8 +943,18 @@ async function handleEvent(event) {
       const itemId = parts[1];
       const qtyPart = parts[2];
       if (qtyPart === "more") return handleAskCustomQty(userId, event.replyToken, itemId);
-      return addToCart(userId, event.replyToken, itemId, parseInt(qtyPart, 10));
+      return proceedAfterQty(userId, event.replyToken, itemId, parseInt(qtyPart, 10));
     }
+    if (data.startsWith("pastafor:")) {
+      const parts = data.split(":");
+      const itemId = parts[1];
+      const pastaId = parts[2];
+      const session = getSession(userId);
+      const qty = session.pendingQty || 1;
+      const dish = MENU.find((d) => d.id === itemId);
+      return addToCart(userId, event.replyToken, itemId, qty, pastaId, dish.category === "mains");
+    }
+    if (data.startsWith("sidepasta:")) return handleSidePasta(userId, event.replyToken, data.split(":")[1]);
     if (data.startsWith("category:")) return showCategoryMenu(userId, event.replyToken, data.split(":")[1]);
     if (data === "reopen_category") {
       const session = getSession(userId);
@@ -771,6 +970,7 @@ async function handleEvent(event) {
     if (data === "edit_order") return showMenu(userId, event.replyToken);
     if (data === "pay:bank") return handlePayBank(userId, event.replyToken);
     if (data === "pay:qr") return handlePayQr(userId, event.replyToken);
+    if (data === "change_address") return handleChangeAddress(userId, event.replyToken);
     return;
   }
 
@@ -805,6 +1005,11 @@ async function handleEvent(event) {
       return handleHumanHandoff(userId, event.replyToken, text);
     }
 
+    const addressChangeTriggers = ["change address", "edit address", "เปลี่ยนที่อยู่", "แก้ที่อยู่"];
+    if (addressChangeTriggers.includes(text.toLowerCase())) {
+      return handleChangeAddress(userId, event.replyToken);
+    }
+
     const menuTriggers = ["menu", "order", "เมนู", "สั่งอาหาร"];
     if (menuTriggers.includes(text.toLowerCase())) {
       return showMenu(userId, event.replyToken);
@@ -823,7 +1028,7 @@ async function handleEvent(event) {
           await client.replyMessage(event.replyToken, { type: "text", text: "Please send just a number, like 3." });
           return;
         }
-        return addToCart(userId, event.replyToken, session.pendingItemId, n);
+        return proceedAfterQty(userId, event.replyToken, session.pendingItemId, n);
       }
 
       case "awaiting_schedule_text":

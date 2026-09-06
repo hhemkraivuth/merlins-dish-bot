@@ -270,7 +270,6 @@ function qtyQuickReply(itemId) {
     type: "action",
     action: { type: "postback", label: `${n}`, data: `qty:${itemId}:${n}` },
   }));
-  items.push({ type: "action", action: { type: "postback", label: "4+", data: `qty:${itemId}:more` } });
   return cancelOnlyQuickReply(items);
 }
 
@@ -416,16 +415,6 @@ async function handleSidePasta(userId, replyToken, pastaId) {
   });
 }
 
-async function handleAskCustomQty(userId, replyToken, itemId) {
-  const session = getSession(userId);
-  session.pendingItemId = itemId;
-  session.step = "awaiting_custom_qty";
-  await client.replyMessage(replyToken, {
-    type: "text",
-    text: "Please type how many you'd like (just the number).",
-    quickReply: cancelOnlyQuickReply(),
-  });
-}
 
 async function handleClearCart(userId, replyToken) {
   const session = getSession(userId);
@@ -764,7 +753,7 @@ async function showFinalSummary(userId, replyToken) {
 function paymentAndCancelQuickReply() {
   return {
     items: [
-      { type: "action", action: { type: "postback", label: "🔁 Change payment method", data: "change_payment" } },
+      { type: "action", action: { type: "postback", label: "🔁 Change payment", data: "change_payment" } },
       { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
     ],
   };
@@ -1184,7 +1173,6 @@ async function handleEvent(event) {
       const parts = data.split(":");
       const itemId = parts[1];
       const qtyPart = parts[2];
-      if (qtyPart === "more") return handleAskCustomQty(userId, event.replyToken, itemId);
       return proceedAfterQty(userId, event.replyToken, itemId, parseInt(qtyPart, 10));
     }
     if (data.startsWith("pastafor:")) {
@@ -1275,19 +1263,6 @@ async function handleEvent(event) {
         // Official Account app without the bot talking over you. Typing
         // "menu" (caught above) is still the way back into ordering.
         return;
-
-      case "awaiting_custom_qty": {
-        const n = parseInt(text, 10);
-        if (isNaN(n) || n < 1) {
-          await client.replyMessage(event.replyToken, {
-            type: "text",
-            text: "Please send just a number, like 3.",
-            quickReply: cancelOnlyQuickReply(),
-          });
-          return;
-        }
-        return proceedAfterQty(userId, event.replyToken, session.pendingItemId, n);
-      }
 
       case "awaiting_schedule_text":
         session.scheduleText = text;

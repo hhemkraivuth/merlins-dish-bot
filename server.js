@@ -42,7 +42,7 @@ const express = require("express");
 const line = require("@line/bot-sdk");
 const axios = require("axios");
 const FormData = require("form-data");
-const { MENU, CATEGORIES, PASTA_OPTIONS, SIDE_PASTA_PRICE } = require("./menu");
+const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
 const { logOrder } = require("./sheetLogger");
 
 const config = {
@@ -97,12 +97,18 @@ function cartLines(cart) {
     .map(([lineId, entry]) => {
       if (entry.itemId === "side_pasta") {
         const pasta = PASTA_OPTIONS.find((p) => p.id === entry.pastaChoice);
-        return { id: lineId, name: `Side Pasta -- ${pasta ? pasta.name : entry.pastaChoice}`, price: SIDE_PASTA_PRICE, qty: entry.qty };
+        return {
+          id: lineId,
+          name: `Side Pasta -- ${pasta ? pasta.name : entry.pastaChoice}`,
+          price: pasta ? pasta.extraPrice : 0,
+          qty: entry.qty,
+        };
       }
       const dish = MENU.find((d) => d.id === entry.itemId);
       const pasta = entry.pastaChoice ? PASTA_OPTIONS.find((p) => p.id === entry.pastaChoice) : null;
+      const surcharge = pasta && dish.requiresPasta ? pasta.mandatorySurcharge || 0 : 0;
       const name = pasta ? `${dish.name} (${pasta.name})` : dish.name;
-      return { id: lineId, name, price: dish.price, qty: entry.qty };
+      return { id: lineId, name, price: dish.price + surcharge, qty: entry.qty };
     });
 }
 
@@ -148,14 +154,16 @@ function buildPastaFlex(mode, itemId) {
   // "sidepasta" (optional add-on, includes a "No thanks" card at the end).
   const bubbles = PASTA_OPTIONS.map((p) => {
     const data = mode === "pastafor" ? `pastafor:${itemId}:${p.id}` : `sidepasta:${p.id}`;
+    const bodyContents = [{ type: "text", text: p.name, weight: "bold", size: "md", wrap: true }];
+    if (mode === "sidepasta") {
+      bodyContents.push({ type: "text", text: `+฿${p.extraPrice}`, size: "sm", color: "#999999" });
+    } else if (p.mandatorySurcharge > 0) {
+      bodyContents.push({ type: "text", text: `+฿${p.mandatorySurcharge}`, size: "sm", color: "#999999" });
+    }
     const bubble = {
       type: "bubble",
-      size: "kilo",
-      body: {
-        type: "box",
-        layout: "vertical",
-        contents: [{ type: "text", text: p.name, weight: "bold", size: "md", wrap: true }],
-      },
+      size: "micro",
+      body: { type: "box", layout: "vertical", contents: bodyContents },
       footer: {
         type: "box",
         layout: "vertical",
@@ -165,7 +173,7 @@ function buildPastaFlex(mode, itemId) {
       },
     };
     if (p.image) {
-      bubble.hero = { type: "image", url: p.image, size: "full", aspectRatio: "20:13", aspectMode: "cover" };
+      bubble.hero = { type: "image", url: p.image, size: "full", aspectRatio: "1:1", aspectMode: "cover" };
     }
     return bubble;
   });
@@ -173,7 +181,7 @@ function buildPastaFlex(mode, itemId) {
   if (mode === "sidepasta") {
     bubbles.push({
       type: "bubble",
-      size: "kilo",
+      size: "micro",
       body: {
         type: "box",
         layout: "vertical",
@@ -231,7 +239,7 @@ function buildMenuFlex(catId) {
         type: "image",
         url: dish.image,
         size: "full",
-        aspectRatio: "20:13",
+        aspectRatio: "1:1",
         aspectMode: "cover",
       };
     }
@@ -301,7 +309,7 @@ async function showMenu(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: "What are you in the mood for?",
-    quickReply: categoryQuickReply(),
+    quickReply: cancelOnlyQuickReply(categoryQuickReply().items),
   });
 }
 
@@ -386,7 +394,7 @@ async function addToCart(userId, replyToken, itemId, qty, pastaChoice, offerSide
 
   if (offerSidePasta) {
     await client.replyMessage(replyToken, [
-      { type: "text", text: `${cartSummaryText(session.cart)}\n\nWould you like to add pasta on the side? (+฿${SIDE_PASTA_PRICE})` },
+      { type: "text", text: `${cartSummaryText(session.cart)}\n\nWould you like to add pasta on the side?` },
       { ...buildPastaFlex("sidepasta", null), quickReply: cancelOnlyQuickReply() },
     ]);
     return;
@@ -438,6 +446,16 @@ function cancelOnlyQuickReply(extraItems) {
   return { items };
 }
 
+// Same as above, but also offers to go back and edit the cart -- for
+// prompts before payment method is chosen, where reconsidering what's
+// in the cart still makes sense (timing, location, address note).
+function cancelAndEditQuickReply(extraItems) {
+  const items = extraItems ? [...extraItems] : [];
+  items.push({ type: "action", action: { type: "postback", label: "✏️ Edit cart", data: "edit_order" } });
+  items.push({ type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } });
+  return { items };
+}
+
 async function handleCheckout(userId, replyToken) {
   const session = getSession(userId);
   if (cartLines(session.cart).length === 0) {
@@ -452,7 +470,7 @@ async function handleCheckout(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: "Would you like this delivered right away, or scheduled for later?",
-    quickReply: cancelOnlyQuickReply([
+    quickReply: cancelAndEditQuickReply([
       { type: "action", action: { type: "postback", label: "🕐 Right away", data: "timing:asap" } },
       { type: "action", action: { type: "postback", label: "📅 Schedule", data: "timing:schedule" } },
     ]),
@@ -469,7 +487,7 @@ async function askLocationPrompt(replyToken) {
       `1. Tap the "+" icon > Location > choose your drop-off point\n` +
       `2. Paste a Google Maps link to your location\n` +
       `3. Type your full address`,
-    quickReply: cancelOnlyQuickReply(),
+    quickReply: cancelAndEditQuickReply(),
   });
 }
 
@@ -486,7 +504,7 @@ async function handleTimingSchedule(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: "What date and time would you like it delivered? (e.g. \"7 Sep, 6:30 PM\")",
-    quickReply: cancelOnlyQuickReply(),
+    quickReply: cancelAndEditQuickReply(),
   });
 }
 
@@ -577,7 +595,7 @@ async function handleGoogleMapsLink(userId, replyToken, url) {
     await client.replyMessage(replyToken, {
       type: "text",
       text: `${note}\n\n${ADDRESS_NOTE_PROMPT}`,
-      quickReply: cancelOnlyQuickReply(),
+      quickReply: cancelAndEditQuickReply(),
     });
     return;
   }
@@ -623,7 +641,7 @@ async function handleLocationShared(userId, replyToken, message) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: `${feeMsg}\n\n${ADDRESS_NOTE_PROMPT}`,
-    quickReply: cancelOnlyQuickReply(),
+    quickReply: cancelAndEditQuickReply(),
   });
 }
 
@@ -1281,7 +1299,7 @@ async function handleEvent(event) {
           await client.replyMessage(event.replyToken, {
             type: "text",
             text: "Please share your location (+  > Location), paste a Google Maps link, or type your full address.",
-            quickReply: cancelOnlyQuickReply(),
+            quickReply: cancelAndEditQuickReply(),
           });
           return;
         }
@@ -1293,7 +1311,7 @@ async function handleEvent(event) {
         await client.replyMessage(event.replyToken, {
           type: "text",
           text: `Noted -- Merlin's Dish will confirm your delivery fee shortly.\n\n${ADDRESS_NOTE_PROMPT}`,
-          quickReply: cancelOnlyQuickReply(),
+          quickReply: cancelAndEditQuickReply(),
         });
         return;
       }

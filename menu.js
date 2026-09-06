@@ -45,7 +45,7 @@ const MENU = [
   { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null, requiresPasta: true },
   { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
   { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
-  { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
+  { id: "mushroom_soup", name: "Mushroom Soup", price: 165, category: "soup", image: null },
 ];
 
 // Pasta/noodle types. Used two ways:
@@ -53,14 +53,13 @@ const MENU = [
 //     (Bolognese, Ragu) -- no extra charge, it's already in the price.
 //  2. Optional side add-on offered after adding a "mains" dish (a stew) --
 //     charged at SIDE_PASTA_PRICE. Edit the price there if it changes.
+// image -- same as dishes: a direct https:// link, or null to skip the photo.
 const PASTA_OPTIONS = [
-  { id: "tubetti", name: "Tubetti" },
-  { id: "radiatori", name: "Radiatori" },
-  { id: "rigatoni", name: "Rigatoni" },
-  { id: "lumache", name: "Lumache" },
-  { id: "linguine", name: "Linguine" },
-  { id: "spaghetti", name: "Spaghetti" },
-  
+  { id: "tubetti", name: "Tubetti", image: null },
+  { id: "radiatori", name: "Radiatori", image: null },
+  { id: "rigatoni", name: "Rigatoni", image: null },
+  { id: "linguine", name: "Linguine", image: null },
+  { id: "spaghetti", name: "Spaghetti", image: null },
 ];
 const SIDE_PASTA_PRICE = 45;
 

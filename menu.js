@@ -35,7 +35,7 @@ const CATEGORIES = [
 ];
 
 const MENU = [
-  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/rws.png?raw=true" },
+  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },
   { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/rws.png?raw=true" },
   { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/dbs.png?raw=true" },
   { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/dbs.png?raw=true" },

@@ -271,7 +271,7 @@ function qtyQuickReply(itemId) {
     action: { type: "postback", label: `${n}`, data: `qty:${itemId}:${n}` },
   }));
   items.push({ type: "action", action: { type: "postback", label: "4+", data: `qty:${itemId}:more` } });
-  return { items };
+  return cancelOnlyQuickReply(items);
 }
 
 function cartActionsQuickReply() {
@@ -342,7 +342,7 @@ async function proceedAfterQty(userId, replyToken, itemId, qty) {
     session.pendingQty = qty;
     await client.replyMessage(replyToken, [
       { type: "text", text: `Which pasta would you like with your "${dish.name}"?` },
-      buildPastaFlex("pastafor", itemId),
+      { ...buildPastaFlex("pastafor", itemId), quickReply: cancelOnlyQuickReply() },
     ]);
     return;
   }
@@ -388,7 +388,7 @@ async function addToCart(userId, replyToken, itemId, qty, pastaChoice, offerSide
   if (offerSidePasta) {
     await client.replyMessage(replyToken, [
       { type: "text", text: `${cartSummaryText(session.cart)}\n\nWould you like to add pasta on the side? (+฿${SIDE_PASTA_PRICE})` },
-      buildPastaFlex("sidepasta", null),
+      { ...buildPastaFlex("sidepasta", null), quickReply: cancelOnlyQuickReply() },
     ]);
     return;
   }
@@ -423,6 +423,7 @@ async function handleAskCustomQty(userId, replyToken, itemId) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: "Please type how many you'd like (just the number).",
+    quickReply: cancelOnlyQuickReply(),
   });
 }
 
@@ -442,6 +443,12 @@ async function handleClearCart(userId, replyToken) {
   }
 }
 
+function cancelOnlyQuickReply(extraItems) {
+  const items = extraItems ? [...extraItems] : [];
+  items.push({ type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } });
+  return { items };
+}
+
 async function handleCheckout(userId, replyToken) {
   const session = getSession(userId);
   if (cartLines(session.cart).length === 0) {
@@ -456,12 +463,10 @@ async function handleCheckout(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: "Would you like this delivered right away, or scheduled for later?",
-    quickReply: {
-      items: [
-        { type: "action", action: { type: "postback", label: "🕐 Right away", data: "timing:asap" } },
-        { type: "action", action: { type: "postback", label: "📅 Schedule", data: "timing:schedule" } },
-      ],
-    },
+    quickReply: cancelOnlyQuickReply([
+      { type: "action", action: { type: "postback", label: "🕐 Right away", data: "timing:asap" } },
+      { type: "action", action: { type: "postback", label: "📅 Schedule", data: "timing:schedule" } },
+    ]),
   });
 }
 
@@ -475,6 +480,7 @@ async function askLocationPrompt(replyToken) {
       `1. Tap the "+" icon > Location > choose your drop-off point\n` +
       `2. Paste a Google Maps link to your location\n` +
       `3. Type your full address`,
+    quickReply: cancelOnlyQuickReply(),
   });
 }
 
@@ -491,6 +497,7 @@ async function handleTimingSchedule(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: "What date and time would you like it delivered? (e.g. \"7 Sep, 6:30 PM\")",
+    quickReply: cancelOnlyQuickReply(),
   });
 }
 
@@ -554,6 +561,7 @@ async function handleGoogleMapsLink(userId, replyToken, url) {
     await client.replyMessage(replyToken, {
       type: "text",
       text: `We couldn't read the location from that link, so Merlin's Dish will confirm your delivery fee shortly.\n\n${ADDRESS_NOTE_PROMPT}`,
+      quickReply: cancelOnlyQuickReply(),
     });
     return;
   }
@@ -599,10 +607,46 @@ async function handleLocationShared(userId, replyToken, message) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: `${feeMsg}\n\n${ADDRESS_NOTE_PROMPT}`,
+    quickReply: cancelOnlyQuickReply(),
   });
 }
 
 async function handleCancelOrder(userId, replyToken) {
+  const session = getSession(userId);
+  const alreadyPaid = !!session.slipRef;
+
+  if (alreadyPaid) {
+    const target = process.env.LINE_INTERNAL_TARGET_ID;
+    if (target) {
+      let displayName = userId;
+      try {
+        const profile = await client.getProfile(userId);
+        displayName = profile.displayName;
+      } catch (e) {
+        /* ignore -- lookup can fail */
+      }
+      try {
+        await client.pushMessage(target, {
+          type: "text",
+          text:
+            `⚠️ CUSTOMER CANCELLED AFTER PAYING\n` +
+            `Customer: ${displayName}\n` +
+            `Slip amount: ฿${session.slipAmount}\n` +
+            `Slip ref: ${session.slipRef}\n` +
+            `Please sort out a refund or resolution directly with them.`,
+        });
+      } catch (err) {
+        console.error("Failed to push paid-cancellation alert:", err.message);
+      }
+    }
+    resetSession(userId);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: "Since you've already paid, we've let Merlin's Dish know directly to sort out your cancellation. They'll be in touch shortly.",
+    });
+    return;
+  }
+
   resetSession(userId);
   await client.replyMessage(replyToken, {
     type: "text",
@@ -867,6 +911,7 @@ async function handleSlipImage(userId, messageId) {
   await client.pushMessage(userId, {
     type: "text",
     text: "Payment verified! ✅ What name should we put on the order?",
+    quickReply: cancelOnlyQuickReply(),
   });
 }
 
@@ -902,11 +947,19 @@ async function forwardForManualReview(userId, session, reason) {
 // ---------- name & phone, then finish ----------
 
 async function askName(replyToken) {
-  await client.replyMessage(replyToken, { type: "text", text: "What name should we put on the order?" });
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "What name should we put on the order?",
+    quickReply: cancelOnlyQuickReply(),
+  });
 }
 
 async function askPhone(replyToken) {
-  await client.replyMessage(replyToken, { type: "text", text: "And a contact number for the delivery?" });
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "And a contact number for the delivery?",
+    quickReply: cancelOnlyQuickReply(),
+  });
 }
 
 async function finishOrder(userId, replyToken, session) {
@@ -1199,7 +1252,11 @@ async function handleEvent(event) {
       case "awaiting_custom_qty": {
         const n = parseInt(text, 10);
         if (isNaN(n) || n < 1) {
-          await client.replyMessage(event.replyToken, { type: "text", text: "Please send just a number, like 3." });
+          await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: "Please send just a number, like 3.",
+            quickReply: cancelOnlyQuickReply(),
+          });
           return;
         }
         return proceedAfterQty(userId, event.replyToken, session.pendingItemId, n);
@@ -1222,6 +1279,7 @@ async function handleEvent(event) {
           await client.replyMessage(event.replyToken, {
             type: "text",
             text: "Please share your location (+  > Location), paste a Google Maps link, or type your full address.",
+            quickReply: cancelOnlyQuickReply(),
           });
           return;
         }
@@ -1233,6 +1291,7 @@ async function handleEvent(event) {
         await client.replyMessage(event.replyToken, {
           type: "text",
           text: `Noted -- Merlin's Dish will confirm your delivery fee shortly.\n\n${ADDRESS_NOTE_PROMPT}`,
+          quickReply: cancelOnlyQuickReply(),
         });
         return;
       }
@@ -1243,7 +1302,11 @@ async function handleEvent(event) {
 
       case "awaiting_name":
         if (text.length < 2) {
-          await client.replyMessage(event.replyToken, { type: "text", text: "Please send your name." });
+          await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: "Please send your name.",
+            quickReply: cancelOnlyQuickReply(),
+          });
           return;
         }
         session.name = text;
@@ -1252,7 +1315,11 @@ async function handleEvent(event) {
 
       case "awaiting_phone":
         if (text.length < 8) {
-          await client.replyMessage(event.replyToken, { type: "text", text: "Please send a valid contact number." });
+          await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: "Please send a valid contact number.",
+            quickReply: cancelOnlyQuickReply(),
+          });
           return;
         }
         session.phone = text;

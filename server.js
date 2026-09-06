@@ -225,6 +225,7 @@ function categoryActionsQuickReply() {
       { type: "action", action: { type: "postback", label: "🔙 All categories", data: "show_menu" } },
       { type: "action", action: { type: "postback", label: "✅ Checkout", data: "checkout" } },
       { type: "action", action: { type: "postback", label: "🗑 Clear cart", data: "clear" } },
+      { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
     ],
   };
 }
@@ -244,6 +245,7 @@ function cartActionsQuickReply() {
       { type: "action", action: { type: "postback", label: "➕ Add more", data: "reopen_category" } },
       { type: "action", action: { type: "postback", label: "✅ Checkout", data: "checkout" } },
       { type: "action", action: { type: "postback", label: "🗑 Clear cart", data: "clear" } },
+      { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
     ],
   };
 }
@@ -493,6 +495,26 @@ async function handleLocationShared(userId, replyToken, message) {
   });
 }
 
+async function handleCancelOrder(userId, replyToken) {
+  resetSession(userId);
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: "Your order has been cancelled, no worries! Type \"menu\" anytime you're ready to order again 🍲",
+  });
+}
+
+async function handleChangePaymentMethod(userId, replyToken) {
+  const session = getSession(userId);
+  if (cartLines(session.cart).length === 0) {
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: "You don't have an order in progress yet. Type \"menu\" to start one!",
+    });
+    return;
+  }
+  return askPaymentMethod(userId, replyToken);
+}
+
 async function handleChangeAddress(userId, replyToken) {
   const session = getSession(userId);
   session.addressBase = null;
@@ -552,12 +574,22 @@ async function showFinalSummary(userId, replyToken) {
         { type: "action", action: { type: "postback", label: "✅ Confirm", data: "confirm_order" } },
         { type: "action", action: { type: "postback", label: "📍 Change address", data: "change_address" } },
         { type: "action", action: { type: "postback", label: "✏️ Edit order", data: "edit_order" } },
+        { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
       ],
     },
   });
 }
 
 // ---------- payment ----------
+
+function paymentAndCancelQuickReply() {
+  return {
+    items: [
+      { type: "action", action: { type: "postback", label: "🔁 Change payment method", data: "change_payment" } },
+      { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
+    ],
+  };
+}
 
 async function askPaymentMethod(userId, replyToken) {
   getSession(userId).step = "awaiting_payment_choice";
@@ -581,6 +613,7 @@ async function handlePayBank(userId, replyToken) {
   await client.replyMessage(replyToken, {
     type: "text",
     text: `Total to pay: ฿${total}\n\nPlease transfer to ${paymentInfo}, then send a photo of your payment slip here.`,
+    quickReply: paymentAndCancelQuickReply(),
   });
 }
 
@@ -595,7 +628,11 @@ async function handlePayQr(userId, replyToken) {
   }
   await client.replyMessage(replyToken, [
     { type: "image", originalContentUrl: qrUrl, previewImageUrl: qrUrl },
-    { type: "text", text: `Total to pay: ฿${total}\n\nScan the QR above, then send a photo of your payment slip here.` },
+    {
+      type: "text",
+      text: `Total to pay: ฿${total}\n\nScan the QR above, then send a photo of your payment slip here.`,
+      quickReply: paymentAndCancelQuickReply(),
+    },
   ]);
 }
 
@@ -971,6 +1008,8 @@ async function handleEvent(event) {
     if (data === "pay:bank") return handlePayBank(userId, event.replyToken);
     if (data === "pay:qr") return handlePayQr(userId, event.replyToken);
     if (data === "change_address") return handleChangeAddress(userId, event.replyToken);
+    if (data === "change_payment") return handleChangePaymentMethod(userId, event.replyToken);
+    if (data === "cancel_order_full") return handleCancelOrder(userId, event.replyToken);
     return;
   }
 
@@ -1008,6 +1047,16 @@ async function handleEvent(event) {
     const addressChangeTriggers = ["change address", "edit address", "เปลี่ยนที่อยู่", "แก้ที่อยู่"];
     if (addressChangeTriggers.includes(text.toLowerCase())) {
       return handleChangeAddress(userId, event.replyToken);
+    }
+
+    const paymentChangeTriggers = ["change payment", "different payment", "เปลี่ยนการชำระเงิน", "เปลี่ยนวิธีชำระเงิน"];
+    if (paymentChangeTriggers.includes(text.toLowerCase())) {
+      return handleChangePaymentMethod(userId, event.replyToken);
+    }
+
+    const cancelTriggers = ["cancel", "cancel order", "ยกเลิก", "ยกเลิกออเดอร์"];
+    if (cancelTriggers.includes(text.toLowerCase())) {
+      return handleCancelOrder(userId, event.replyToken);
     }
 
     const menuTriggers = ["menu", "order", "เมนู", "สั่งอาหาร"];
@@ -1084,6 +1133,7 @@ async function handleEvent(event) {
         await client.replyMessage(event.replyToken, {
           type: "text",
           text: "Please send a photo of your payment slip to continue.",
+          quickReply: paymentAndCancelQuickReply(),
         });
         return;
 

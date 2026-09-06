@@ -143,22 +143,57 @@ function availableInCategory(catId) {
   return MENU.filter((d) => d.category === catId && !isUnavailable(d.id));
 }
 
-function pastaChoiceQuickReply(itemId) {
-  return {
-    items: PASTA_OPTIONS.map((p) => ({
-      type: "action",
-      action: { type: "postback", label: p.name, data: `pastafor:${itemId}:${p.id}` },
-    })),
-  };
-}
+function buildPastaFlex(mode, itemId) {
+  // mode is "pastafor" (mandatory choice tied to a specific dish) or
+  // "sidepasta" (optional add-on, includes a "No thanks" card at the end).
+  const bubbles = PASTA_OPTIONS.map((p) => {
+    const data = mode === "pastafor" ? `pastafor:${itemId}:${p.id}` : `sidepasta:${p.id}`;
+    const bubble = {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [{ type: "text", text: p.name, weight: "bold", size: "md", wrap: true }],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "button", style: "primary", color: "#E8302A", action: { type: "postback", label: "Choose", data } },
+        ],
+      },
+    };
+    if (p.image) {
+      bubble.hero = { type: "image", url: p.image, size: "full", aspectRatio: "20:13", aspectMode: "cover" };
+    }
+    return bubble;
+  });
 
-function sidePastaQuickReply() {
-  const items = PASTA_OPTIONS.map((p) => ({
-    type: "action",
-    action: { type: "postback", label: p.name, data: `sidepasta:${p.id}` },
-  }));
-  items.push({ type: "action", action: { type: "postback", label: "No thanks", data: "sidepasta:no" } });
-  return { items };
+  if (mode === "sidepasta") {
+    bubbles.push({
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [{ type: "text", text: "No thanks", weight: "bold", size: "md" }],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "button", style: "secondary", action: { type: "postback", label: "No thanks", data: "sidepasta:no" } },
+        ],
+      },
+    });
+  }
+
+  return {
+    type: "flex",
+    altText: "Choose your pasta",
+    contents: { type: "carousel", contents: bubbles },
+  };
 }
 
 function buildMenuFlex(catId) {
@@ -305,11 +340,10 @@ async function proceedAfterQty(userId, replyToken, itemId, qty) {
     const session = getSession(userId);
     session.pendingItemId = itemId;
     session.pendingQty = qty;
-    await client.replyMessage(replyToken, {
-      type: "text",
-      text: `Which pasta would you like with your "${dish.name}"?`,
-      quickReply: pastaChoiceQuickReply(itemId),
-    });
+    await client.replyMessage(replyToken, [
+      { type: "text", text: `Which pasta would you like with your "${dish.name}"?` },
+      buildPastaFlex("pastafor", itemId),
+    ]);
     return;
   }
   await addToCart(userId, replyToken, itemId, qty, null, dish.category === "mains");
@@ -352,11 +386,10 @@ async function addToCart(userId, replyToken, itemId, qty, pastaChoice, offerSide
   session.step = "ordering";
 
   if (offerSidePasta) {
-    await client.replyMessage(replyToken, {
-      type: "text",
-      text: `${cartSummaryText(session.cart)}\n\nWould you like to add pasta on the side? (+฿${SIDE_PASTA_PRICE})`,
-      quickReply: sidePastaQuickReply(),
-    });
+    await client.replyMessage(replyToken, [
+      { type: "text", text: `${cartSummaryText(session.cart)}\n\nWould you like to add pasta on the side? (+฿${SIDE_PASTA_PRICE})` },
+      buildPastaFlex("sidepasta", null),
+    ]);
     return;
   }
 

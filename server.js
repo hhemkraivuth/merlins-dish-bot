@@ -756,6 +756,12 @@ async function handleEvent(event) {
       if (qtyPart === "more") return handleAskCustomQty(userId, event.replyToken, itemId);
       return addToCart(userId, event.replyToken, itemId, parseInt(qtyPart, 10));
     }
+    if (data.startsWith("category:")) return showCategoryMenu(userId, event.replyToken, data.split(":")[1]);
+    if (data === "reopen_category") {
+      const session = getSession(userId);
+      if (session.lastCategory) return showCategoryMenu(userId, event.replyToken, session.lastCategory);
+      return showMenu(userId, event.replyToken);
+    }
     if (data === "show_menu") return showMenu(userId, event.replyToken);
     if (data === "checkout") return handleCheckout(userId, event.replyToken);
     if (data === "clear") return handleClearCart(userId, event.replyToken);

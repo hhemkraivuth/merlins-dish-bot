@@ -38,7 +38,7 @@ const CATEGORIES = [
 
 const MENU = [
   // -- Spotlight --
-  { id: "bacon_steak", name: "Bacon Steak", price: 95, category: "spotlight", image: null },
+  { id: "bacon_steak", name: "Bacon Steak", price: 95, category: "spotlight", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/BaconSteak.png" },
 
   // -- Main Dishes --
   { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },

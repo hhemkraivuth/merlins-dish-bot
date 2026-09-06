@@ -36,15 +36,14 @@ const CATEGORIES = [
 
 const MENU = [
   { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },
-  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: null },
-  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: null },
-  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: null },
-  { id: "rustic", name: "Rustic Beef Stew", price: 225, category: "mains", image: null },
-  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
-  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: null, requiresPasta: true },
-  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null, requiresPasta: true },
-  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
-  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
+  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },
+  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/dbs.png" },
+  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/dbs.png" },
+  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/tpb.png" },
+  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/bolognese.png", requiresPasta: true },
+  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/ragu.png", requiresPasta: true },
+  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/cs.png" },
+  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/bs.png" },
   { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
 ];
 
@@ -55,11 +54,11 @@ const MENU = [
 //     charged at SIDE_PASTA_PRICE. Edit the price there if it changes.
 // image -- same as dishes: a direct https:// link, or null to skip the photo.
 const PASTA_OPTIONS = [
-  { id: "tubetti", name: "Tubetti", image: null },
-  { id: "radiatori", name: "Radiatori", image: null },
-  { id: "rigatoni", name: "Rigatoni", image: null },
-  { id: "linguine", name: "Linguine", image: null },
-  { id: "spaghetti", name: "Spaghetti", image: null },
+  { id: "tubetti", name: "Tubetti", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/tubetti.png" },
+  { id: "radiatori", name: "Radiatori", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/radiatori.png" },
+  { id: "rigatoni", name: "Rigatoni", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rigatoni.png" },
+  { id: "linguine", name: "Linguine", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/linguine.png" },
+  { id: "spaghetti", name: "Spaghetti", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/spaghetti.png" },
 ];
 const SIDE_PASTA_PRICE = 45;
 

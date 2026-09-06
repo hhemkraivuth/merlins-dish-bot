@@ -39,7 +39,7 @@ const MENU = [
   { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: null },
   { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: null },
   { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: null },
-  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
+  { id: "tpb", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
   { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: null },
   { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null },
   { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },

@@ -42,8 +42,8 @@ const MENU = [
   { id: "tpb", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
   { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: null },
   { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null },
-  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
-  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
+  { id: "chics", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
+  { id: "brocs", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
   { id: "mushroom_soup", name: "Mushroom Soup", price: 165, category: "soup", image: null },
 ];
 

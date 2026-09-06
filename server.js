@@ -535,6 +535,14 @@ async function handleGoogleMapsLink(userId, replyToken, url) {
       validateStatus: () => true,
     });
     const finalUrl = (response.request && response.request.res && response.request.res.responseUrl) || url;
+    console.log(
+      `Maps link fetch: status=${response.status} finalUrl=${finalUrl} contentType=${response.headers["content-type"]}`
+    );
+    if (typeof response.data === "string") {
+      console.log(`Maps link body snippet (first 800 chars): ${response.data.slice(0, 800)}`);
+    } else {
+      console.log(`Maps link body was not a string (type: ${typeof response.data})`);
+    }
     coords = extractLatLngFromGoogleMapsUrl(finalUrl);
 
     if (!coords && typeof response.data === "string") {

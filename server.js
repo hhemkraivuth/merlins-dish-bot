@@ -1159,9 +1159,14 @@ async function handleFollow(userId, replyToken) {
     type: "text",
     text:
       `Hi, welcome to Merlin's Dish! 🍲\n\n` +
-      `Ready to order? Just type "menu" anytime.\n` +
-      `Got a question instead? Feel free to just ask, we're happy to help, ` +
-      `this isn't only for ordering!`,
+      `We're a small neighbourhood kitchen crafting slow cooked meals, made for homey comfort. 🤌🏼\n` +
+      `Ready to order? Just type "menu" anytime. ` +
+      `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait. ` +
+      `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km. ` +
+      `Got a question? Feel free to just ask, we're happy to help, ` +
+      `this isn't only for ordering! ` +
+      `this isn't only for ordering! ` + ` +
+      `—Merlin's Dish `,
   });
 }
 

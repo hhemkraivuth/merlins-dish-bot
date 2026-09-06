@@ -266,6 +266,7 @@ function categoryActionsQuickReply() {
   return {
     items: [
       { type: "action", action: { type: "postback", label: "🔙 All categories", data: "show_menu" } },
+      { type: "action", action: { type: "postback", label: "✏️ Edit cart", data: "edit_order" } },
       { type: "action", action: { type: "postback", label: "✅ Checkout", data: "checkout" } },
       { type: "action", action: { type: "postback", label: "🗑 Clear cart", data: "clear" } },
       { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
@@ -285,6 +286,7 @@ function cartActionsQuickReply() {
   return {
     items: [
       { type: "action", action: { type: "postback", label: "➕ Add more", data: "reopen_category" } },
+      { type: "action", action: { type: "postback", label: "✏️ Edit cart", data: "edit_order" } },
       { type: "action", action: { type: "postback", label: "✅ Checkout", data: "checkout" } },
       { type: "action", action: { type: "postback", label: "🗑 Clear cart", data: "clear" } },
       { type: "action", action: { type: "postback", label: "❌ Cancel order", data: "cancel_order_full" } },
@@ -329,6 +331,18 @@ async function handleAddPrompt(userId, replyToken, itemId) {
   }
   session.pendingItemId = itemId;
   const dish = MENU.find((d) => d.id === itemId);
+
+  // Bolognese/Ragu: ask which pasta FIRST, then how many -- one sauce
+  // plus one noodle choice makes one plate, so the noodle has to be
+  // picked before we can ask "how many of that plate would you like?"
+  if (dish.requiresPasta) {
+    await client.replyMessage(replyToken, [
+      { type: "text", text: `Which pasta would you like with your "${dish.name}"?` },
+      { ...buildPastaFlex("pastafor", itemId), quickReply: cancelOnlyQuickReply() },
+    ]);
+    return;
+  }
+
   await client.replyMessage(replyToken, {
     type: "text",
     text: `How many "${dish.name}" would you like?`,
@@ -336,24 +350,29 @@ async function handleAddPrompt(userId, replyToken, itemId) {
   });
 }
 
-// Called once a quantity has been picked, whichever way (quick-reply
-// number, "6+" custom text, or a pasta choice for a bundled dish).
-// Handles the stock check, then branches: Bolognese/Ragu need a pasta
-// choice before they can be added; everything else adds straight away,
-// and a "mains" dish (a stew) gets offered pasta as a side add-on after.
+// Called once a quantity has been picked. Any pending pasta choice
+// (set earlier by handlePastaChosen, for Bolognese/Ragu) rides along
+// automatically; everything else adds straight away, and a "mains"
+// dish (a stew) gets offered pasta as a side add-on afterward.
 async function proceedAfterQty(userId, replyToken, itemId, qty) {
   const dish = MENU.find((d) => d.id === itemId);
-  if (dish.requiresPasta) {
-    const session = getSession(userId);
-    session.pendingItemId = itemId;
-    session.pendingQty = qty;
-    await client.replyMessage(replyToken, [
-      { type: "text", text: `Which pasta would you like with your "${dish.name}"?` },
-      { ...buildPastaFlex("pastafor", itemId), quickReply: cancelOnlyQuickReply() },
-    ]);
-    return;
-  }
-  await addToCart(userId, replyToken, itemId, qty, null, dish.category === "mains");
+  const session = getSession(userId);
+  const pastaChoice = session.pendingPastaChoice || null;
+  session.pendingPastaChoice = null;
+  await addToCart(userId, replyToken, itemId, qty, pastaChoice, dish.category === "mains");
+}
+
+async function handlePastaChosen(userId, replyToken, itemId, pastaId) {
+  const session = getSession(userId);
+  session.pendingItemId = itemId;
+  session.pendingPastaChoice = pastaId;
+  const dish = MENU.find((d) => d.id === itemId);
+  const pasta = PASTA_OPTIONS.find((p) => p.id === pastaId);
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: `How many "${dish.name}" (${pasta ? pasta.name : pastaId}) would you like?`,
+    quickReply: qtyQuickReply(itemId),
+  });
 }
 
 async function addToCart(userId, replyToken, itemId, qty, pastaChoice, offerSidePasta) {
@@ -941,11 +960,12 @@ async function handleSlipImage(userId, messageId) {
 
   session.slipAmount = slip.amountInSlip;
   session.slipRef = slip.transRef;
-  session.step = "awaiting_name";
+  session.step = "awaiting_name_phone";
   await client.pushMessage(userId, {
     type: "text",
-    text: "Payment verified! ✅ What name should we put on the order?",
-    quickReply: cancelOnlyQuickReply(),
+    text:
+      "Payment verified! ✅ Please send your name and contact number together, " +
+      "separated by a comma (e.g. \"John Doe, 0812345678\").",
   });
 }
 
@@ -980,21 +1000,6 @@ async function forwardForManualReview(userId, session, reason) {
 
 // ---------- name & phone, then finish ----------
 
-async function askName(replyToken) {
-  await client.replyMessage(replyToken, {
-    type: "text",
-    text: "What name should we put on the order?",
-    quickReply: cancelOnlyQuickReply(),
-  });
-}
-
-async function askPhone(replyToken) {
-  await client.replyMessage(replyToken, {
-    type: "text",
-    text: "And a contact number for the delivery?",
-    quickReply: cancelOnlyQuickReply(),
-  });
-}
 
 async function finishOrder(userId, replyToken, session) {
   const lines = cartLines(session.cart);
@@ -1197,10 +1202,7 @@ async function handleEvent(event) {
       const parts = data.split(":");
       const itemId = parts[1];
       const pastaId = parts[2];
-      const session = getSession(userId);
-      const qty = session.pendingQty || 1;
-      const dish = MENU.find((d) => d.id === itemId);
-      return addToCart(userId, event.replyToken, itemId, qty, pastaId, dish.category === "mains");
+      return handlePastaChosen(userId, event.replyToken, itemId, pastaId);
     }
     if (data.startsWith("sidepasta:")) return handleSidePasta(userId, event.replyToken, data.split(":")[1]);
     if (data.startsWith("category:")) return showCategoryMenu(userId, event.replyToken, data.split(":")[1]);
@@ -1320,30 +1322,24 @@ async function handleEvent(event) {
         session.addressNote = text;
         return showFinalSummary(userId, event.replyToken);
 
-      case "awaiting_name":
-        if (text.length < 2) {
+      case "awaiting_name_phone": {
+        const commaIndex = text.indexOf(",");
+        const name = commaIndex === -1 ? "" : text.slice(0, commaIndex).trim();
+        const phone = commaIndex === -1 ? "" : text.slice(commaIndex + 1).trim();
+        const phoneDigits = phone.replace(/\D/g, "");
+        if (name.length < 2 || phoneDigits.length < 8) {
           await client.replyMessage(event.replyToken, {
             type: "text",
-            text: "Please send your name.",
-            quickReply: cancelOnlyQuickReply(),
+            text:
+              "That didn't quite work. Please send your name and number together, " +
+              "separated by a comma (e.g. \"John Doe, 0812345678\").",
           });
           return;
         }
-        session.name = text;
-        session.step = "awaiting_phone";
-        return askPhone(event.replyToken);
-
-      case "awaiting_phone":
-        if (text.length < 8) {
-          await client.replyMessage(event.replyToken, {
-            type: "text",
-            text: "Please send a valid contact number.",
-            quickReply: cancelOnlyQuickReply(),
-          });
-          return;
-        }
-        session.phone = text;
+        session.name = name;
+        session.phone = phone;
         return finishOrder(userId, event.replyToken, session);
+      }
 
       case "awaiting_slip":
         await client.replyMessage(event.replyToken, {

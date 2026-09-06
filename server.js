@@ -1165,8 +1165,7 @@ async function handleFollow(userId, replyToken) {
       `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km. ` +
       `Got a question? Feel free to just ask, we're happy to help, ` +
       `this isn't only for ordering! ` +
-      `this isn't only for ordering! ` + ` +
-      `—Merlin's Dish `,
+      `Merlin's Dish `,
   });
 }
 

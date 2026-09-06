@@ -35,15 +35,15 @@ const CATEGORIES = [
 ];
 
 const MENU = [
-  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: null },
-  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: null },
-  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: null },
-  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: null },
-  { id: "tpb", name: "Tuscan Pork Braise", price: 245, category: "mains", image: null },
+  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/rws.png?raw=true },
+  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/rws.png?raw=true },
+  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/dbs.png?raw=true },
+  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/dbs.png?raw=true },
+  { id: "tpb", name: "Tuscan Pork Braise", price: 245, category: "mains", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/tpb.png?raw=true },
   { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/bolognese.png?raw=true },
-  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: null },
-  { id: "cs", name: "Creamy Chicken Soup", price: 165, category: "soup", image: null },
-  { id: "bs", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: null },
+  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/ragu.png?raw=true },
+  { id: "cs", name: "Creamy Chicken Soup", price: 165, category: "soup", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/cs.png?raw=true },
+  { id: "bs", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: https://github.com/hhemkraivuth/merlins-dish-bot/blob/main/images/bs.png?raw=true },
   { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
 ];
 

@@ -659,14 +659,32 @@ async function handlePayQr(userId, replyToken) {
     console.warn("QR_IMAGE_URL not set -- falling back to bank details text.");
     return handlePayBank(userId, replyToken);
   }
-  await client.replyMessage(replyToken, [
-    { type: "image", originalContentUrl: qrUrl, previewImageUrl: qrUrl },
-    {
+  try {
+    await client.replyMessage(replyToken, [
+      { type: "image", originalContentUrl: qrUrl, previewImageUrl: qrUrl },
+      {
+        type: "text",
+        text: `Total to pay: ฿${total}\n\nScan the QR above, then send a photo of your payment slip here.`,
+        quickReply: paymentAndCancelQuickReply(),
+      },
+    ]);
+  } catch (err) {
+    // LINE rejects the whole message if the image URL is bad (wrong
+    // format, private repo, spaces in the filename, too large, etc).
+    // Fall back to bank details rather than leaving the customer with
+    // nothing at all.
+    console.error("Sending QR payment message failed, falling back to bank details:", err.message);
+    await client.pushMessage(userId, {
       type: "text",
-      text: `Total to pay: ฿${total}\n\nScan the QR above, then send a photo of your payment slip here.`,
+      text: `Total to pay: ฿${total}\n\nOur QR image isn't loading right now, please use bank transfer instead:`,
+    });
+    const paymentInfo = process.env.BUSINESS_PAYMENT_INFO || "our bank account";
+    await client.pushMessage(userId, {
+      type: "text",
+      text: `Transfer to ${paymentInfo}, then send a photo of your payment slip here.`,
       quickReply: paymentAndCancelQuickReply(),
-    },
-  ]);
+    });
+  }
 }
 
 // ---------- slip verification ----------

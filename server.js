@@ -1,19 +1,14 @@
 // ============================================================
-// MERLIN'S DISH -- LINE ORDERING BOT
+// MERLIN'S DISH -- LINE BOT + LIFF ORDERING APP
 // ============================================================
-// Flow, in order:
-//   1. Customer is already your LINE friend (nothing to code).
-//   2. Rich menu tap / "menu" -> Flex carousel of dishes  (showMenu)
-//   3. Tap a dish -> bot asks quantity                      (handleAddPrompt / handleSetQty)
-//   4. Checkout -> asks Right away or Scheduled             (handleCheckout / handleTiming*)
-//   5. Bot asks for delivery location                       (askLocationPrompt / handleLocationShared)
-//      -- free under 2km, else flags your group immediately
-//   6. Bot shows the full total (food + delivery note)       (showFinalSummary)
-//   7. Customer picks Bank Transfer or QR code               (handlePayBank / handlePayQr)
-//   8. Customer sends a slip photo                           (handleSlipImage)
-//   9. Bot checks the slip is real and correct                (verifySlip)
-//  10. Bot asks name, then phone                              (askName -> askPhone)
-//  11. Bot sends the full summary to you                      (finishOrder)
+// This server now does two jobs:
+//   1. The LINE Messaging API webhook (/webhook) -- unchanged, handles
+//      the "menu" text trigger for people who don't use the app,
+//      admin commands, greetings, and pushing order confirmations.
+//   2. The LIFF ordering app's backend (/api/*) -- serves menu data
+//      to the web app in /public, and receives finished orders from
+//      it (see handlePlaceOrder below). The web app itself lives in
+//      /public/index.html, style.css, and app.js.
 //
 // Admin (you) can text the bot directly from your own LINE account:
 //   "stock"                 -> lists sold-out items and any tracked stock counts
@@ -24,26 +19,21 @@
 //                                this, and it auto-decreases as orders come in
 // Item ids are the short codes in menu.js (e.g. rws_r, bolognese).
 //
-// Bolognese and Ragu require a pasta choice before they're added to the
-// cart (no extra charge). Any "mains" dish (a stew) gets offered pasta as
-// a paid side add-on right after it's added. Both use the PASTA_OPTIONS
-// list in menu.js.
-//
-// A customer can type "change address" (or the Thai equivalent) at any
-// point after giving their delivery location to redo just that step,
-// without losing their cart or anything else already collected.
-//
 // You should not need to touch this file for day-to-day changes.
 // Prices, dish names, categories, and dish images live in menu.js instead.
 // ============================================================
 
 require("dotenv").config();
+const path = require("path");
 const express = require("express");
+const multer = require("multer");
 const line = require("@line/bot-sdk");
 const axios = require("axios");
 const FormData = require("form-data");
 const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
 const { logOrder } = require("./sheetLogger");
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -51,6 +41,7 @@ const config = {
 };
 const client = new line.Client(config);
 const app = express();
+app.use(express.static(path.join(__dirname, "public")));
 
 // In-memory cart/session per customer. Resets if the server restarts --
 // fine for a solo, evening-only operation.
@@ -1228,34 +1219,249 @@ async function handleHumanHandoff(userId, replyToken, triggerText) {
   });
 }
 
-async function handleFollow(userId, replyToken) {
-
+async function sendOrderAppLink(userId, replyToken) {
+  const liffId = process.env.LIFF_ID;
+  if (!liffId) {
+    // LIFF isn't set up yet -- fall back to the old chat ordering flow
+    // rather than leaving a real customer with a dead end.
+    return showMenu(userId, replyToken);
+  }
   await client.replyMessage(replyToken, {
+    type: "template",
+    altText: "Order from Merlin's Dish",
+    template: {
+      type: "buttons",
+      text: "Ready to order? Tap below to browse the full menu and order directly 🍲",
+      actions: [{ type: "uri", label: "🥘 Order Now", uri: `https://liff.line.me/${liffId}` }],
+    },
+  });
+}
 
+async function handleFollow(userId, replyToken) {
+  await client.replyMessage(replyToken, {
     type: "text",
-
     text:
-
       `Hello, welcome to the kitchen 🥘✨\n\n` +
-
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
-
       `Ready to order? Just type "menu" anytime.\n\n` +
-
       `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait.\n` +
-
       `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km.\n\n` +
-
       `Got a question instead? Just ask, we're happy to help, this isn't only for ordering.\n\n` +
-
       `Both ways, same magic.\n\n` +
-
       `Comfort Food Made With Magic ✨\n` +
-
       `—Merlin's Dish`,
+  });
+}
 
+// ---------- LIFF app API ----------
+// Backend for the web app in /public. It reuses the same helper
+// functions, menu data, stock tracking, and LINE push logic as the
+// chat-based bot above -- this is genuinely the same server, just a
+// second way in for customers.
+
+app.get("/api/menu", (req, res) => {
+  const items = MENU.map((d) => ({
+    id: d.id,
+    name: d.name,
+    price: d.price,
+    category: d.category,
+    image: d.image,
+    requiresPasta: !!d.requiresPasta,
+    available: !isUnavailable(d.id),
+    remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
+  }));
+  res.json({ categories: CATEGORIES, items, pastaOptions: PASTA_OPTIONS });
+});
+
+app.get("/api/shop-info", (req, res) => {
+  res.json({
+    shopLat: process.env.SHOP_LAT ? parseFloat(process.env.SHOP_LAT) : null,
+    shopLng: process.env.SHOP_LNG ? parseFloat(process.env.SHOP_LNG) : null,
+    paymentInfo: process.env.BUSINESS_PAYMENT_INFO || "our bank account",
+    qrImageUrl: process.env.QR_IMAGE_URL || null,
+    liffId: process.env.LIFF_ID || null,
+  });
+});
+
+app.post("/api/place-order", upload.single("slip"), async (req, res) => {
+  let order;
+  try {
+    order = JSON.parse(req.body.order || "{}");
+  } catch (err) {
+    return res.status(400).json({ success: false, error: "BAD_REQUEST", message: "Invalid order data." });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: "NO_SLIP", message: "No payment slip was attached." });
+  }
+  if (!Array.isArray(order.items) || order.items.length === 0) {
+    return res.status(400).json({ success: false, error: "EMPTY_CART", message: "Your cart is empty." });
+  }
+  if (!order.name || !order.phone) {
+    return res.status(400).json({ success: false, error: "MISSING_INFO", message: "Name and phone are required." });
+  }
+
+  // Recompute everything server-side from menu.js -- never trust prices
+  // or availability sent by the browser.
+  const lines = [];
+  for (const reqItem of order.items) {
+    const dish = MENU.find((d) => d.id === reqItem.itemId);
+    if (!dish) {
+      return res.status(400).json({ success: false, error: "UNKNOWN_ITEM", message: `Unknown item: ${reqItem.itemId}` });
+    }
+    if (isUnavailable(dish.id)) {
+      return res.status(409).json({ success: false, error: "OUT_OF_STOCK", message: `"${dish.name}" just sold out. Please remove it and try again.` });
+    }
+    const remaining = remainingStock(dish.id);
+    if (remaining !== Infinity && reqItem.qty > remaining) {
+      return res.status(409).json({
+        success: false,
+        error: "OUT_OF_STOCK",
+        message: `Only ${remaining} of "${dish.name}" left. Please adjust the quantity and try again.`,
+      });
+    }
+    let price = dish.price;
+    let name = dish.name;
+    if (reqItem.pastaChoice) {
+      const pasta = PASTA_OPTIONS.find((p) => p.id === reqItem.pastaChoice);
+      if (pasta) {
+        name = `${dish.name} (${pasta.name})`;
+        if (dish.requiresPasta) price += pasta.mandatorySurcharge || 0;
+      }
+    }
+    lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
+  }
+
+  const total = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+
+  let slipResult;
+  try {
+    slipResult = await verifySlip(req.file.buffer, total);
+  } catch (err) {
+    console.error("Thunder API request failed (LIFF order):", err.message);
+    await forwardLiffOrderForManualReview(order, lines, total, "Slip check API did not respond.");
+    return res.json({
+      success: true,
+      manualReview: true,
+      needsManualFee: order.needsManualFee,
+      message: "We couldn't verify your slip automatically, so Merlin's Dish will confirm it directly.",
+    });
+  }
+
+  if (!slipResult.success) {
+    const code = slipResult.error && slipResult.error.code;
+    if (code === "SLIP_PENDING") {
+      return res.status(409).json({ success: false, error: "SLIP_PENDING", message: "This slip is still processing on the bank's side. Please wait a couple of minutes and try again." });
+    }
+    if (code === "SLIP_NOT_FOUND" || code === "INVALID_IMAGE_FORMAT") {
+      return res.status(409).json({ success: false, error: "SLIP_NOT_FOUND", message: "We couldn't read a slip in that photo. Please make sure the QR code area is clear." });
+    }
+    await forwardLiffOrderForManualReview(order, lines, total, `Slip check error: ${code || "unknown"}`);
+    return res.json({
+      success: true,
+      manualReview: true,
+      needsManualFee: order.needsManualFee,
+      message: "We couldn't verify that automatically, so Merlin's Dish will confirm it directly.",
+    });
+  }
+
+  const slip = slipResult.data;
+  if (slip.isDuplicate) {
+    return res.status(409).json({ success: false, error: "DUPLICATE_SLIP", message: "This slip has already been used for a previous order." });
+  }
+  if (slip.isAmountMatched === false) {
+    return res.status(409).json({
+      success: false,
+      error: "AMOUNT_MISMATCH",
+      message: `The slip shows ฿${slip.amountInSlip}, but your total is ฿${total}. Please check and try again.`,
+    });
+  }
+
+  // Verified -- decrement stock, forward to internal group, log, confirm.
+  for (const line of lines) {
+    if (!stockCount.has(line.itemId)) continue;
+    const remaining = stockCount.get(line.itemId) - line.qty;
+    stockCount.set(line.itemId, remaining);
+    if (remaining <= 0) soldOut.add(line.itemId);
+  }
+
+  const fullAddress = order.location
+    ? `Lat ${order.location.lat}, Lng ${order.location.lng}`
+    : order.addressText || "(not provided)";
+  const addressWithNote = order.addressNote ? `${fullAddress} -- ${order.addressNote}` : fullAddress;
+  const timingLine = order.timing === "SCHEDULED" ? `Scheduled: ${order.scheduleText}` : "Right away";
+  const deliveryLine =
+    order.needsManualFee === false
+      ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
+      : `Delivery fee: TO BE CONFIRMED${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
+  const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
+
+  const target = process.env.LINE_INTERNAL_TARGET_ID;
+  if (target) {
+    try {
+      await client.pushMessage(target, {
+        type: "text",
+        text:
+          `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
+          `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
+          `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
+      });
+    } catch (err) {
+      console.error("Failed to push LIFF order to internal target:", err.message);
+    }
+  }
+
+  if (order.needsManualFee) {
+    await pingManualFeeNeeded(order.distanceKm || null);
+  }
+
+  await logOrder({
+    name: order.name,
+    address: addressWithNote,
+    phone: order.phone,
+    items: lines,
+    total,
+    slipRef: slip.transRef,
   });
 
+  if (order.lineUserId) {
+    try {
+      await client.pushMessage(order.lineUserId, {
+        type: "text",
+        text: `All set! Your order is confirmed and on its way to the kitchen. Thank you for ordering from Merlin's Dish! 🍲`,
+      });
+    } catch (err) {
+      console.error("Failed to push confirmation to customer (order still succeeded):", err.message);
+    }
+  }
+
+  res.json({
+    success: true,
+    total,
+    needsManualFee: order.needsManualFee,
+    distanceKm: order.distanceKm,
+    slipRef: slip.transRef,
+  });
+});
+
+async function forwardLiffOrderForManualReview(order, lines, total, reason) {
+  const target = process.env.LINE_INTERNAL_TARGET_ID;
+  if (!target) return;
+  const body = lines.map((l) => `${l.qty}x ${l.name}`).join(", ");
+  try {
+    await client.pushMessage(target, {
+      type: "text",
+      text:
+        `⚠️ NEEDS MANUAL SLIP CHECK (via app)\n` +
+        `Customer: ${order.name || "unknown"} (${order.phone || "no phone"})\n` +
+        `Order: ${body}\n` +
+        `Total: ฿${total}\n` +
+        `Reason: ${reason}\n` +
+        `Please contact them directly to confirm payment.`,
+    });
+  } catch (err) {
+    console.error("Failed to push LIFF manual-review alert:", err.message);
+  }
 }
 
 // ---------- webhook ----------
@@ -1368,7 +1574,7 @@ async function handleEvent(event) {
 
     const menuTriggers = ["menu", "order", "เมนู", "สั่งอาหาร"];
     if (menuTriggers.includes(text.toLowerCase())) {
-      return showMenu(userId, event.replyToken);
+      return sendOrderAppLink(userId, event.replyToken);
     }
 
     switch (session.step) {
@@ -1454,5 +1660,5 @@ async function handleEvent(event) {
 }
 
 const PORT = process.env.PORT || 3000;
-app.get("/", (req, res) => res.send("Merlin's Dish bot is running."));
+app.get("/health", (req, res) => res.send("Merlin's Dish bot is running."));
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));

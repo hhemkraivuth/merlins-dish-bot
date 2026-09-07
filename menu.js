@@ -41,30 +41,30 @@ const MENU = [
   { id: "bacon_steak", name: "Bacon Steak", price: 95, category: "spotlight", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/BaconSteak.png" },
 
   // -- Main Dishes --
-  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },
-  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rws.png" },
-  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/dbs.png" },
-  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/dbs.png" },
-  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/tpb.png" },
+  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png" },
+  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png" },
+  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png" },
+  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png" },
+  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/tpb.png" },
 
   // -- Pasta (bundled dishes, pasta choice is mandatory and mostly free,
   //    Tubetti/Radiatori add a small surcharge -- see PASTA_OPTIONS below) --
-  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/ragu.png", requiresPasta: true },
-  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/bolonese.png", requiresPasta: true },
+  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766603/ragu.png", requiresPasta: true },
+  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bolognese.png", requiresPasta: true },
 
   // -- Soup --
-  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/cs.png" },
-  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/bs.png" },
+  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/cs.png" },
+  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bs.png" },
   { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
 
   // -- Extras: pasta sold on its own, browsable any time (not tied to
   //    ordering a stew first). Prices come from PASTA_OPTIONS.extraPrice
   //    below, images are the same photos as the pasta picker uses.
-  { id: "extra_tubetti", name: "Tubetti (Extra)", price: 45, category: "extras", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/tubetti.png" },
-  { id: "extra_radiatori", name: "Radiatori (Extra)", price: 45, category: "extras", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/radiatori.png" },
-  { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rigatoni.png" },
-  { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/linguine.png" },
-  { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/spaghetti.png" },
+  { id: "extra_tubetti", name: "Tubetti (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/tubetti.jpg" },
+  { id: "extra_radiatori", name: "Radiatori (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg" },
+  { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg" },
+  { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png" },
+  { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg" },
 ];
 
 // Pasta/noodle types. Used two ways:
@@ -78,11 +78,11 @@ const MENU = [
 // IMPORTANT: if you add a photo here, use the SAME image link on the
 // matching "extra_<name>" item in MENU above, so they stay consistent.
 const PASTA_OPTIONS = [
-  { id: "tubetti", name: "Tubetti", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/tubetti.png", mandatorySurcharge: 5, extraPrice: 45 },
-  { id: "radiatori", name: "Radiatori", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/radiatori.png", mandatorySurcharge: 5, extraPrice: 45 },
-  { id: "rigatoni", name: "Rigatoni", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/rigatoni.png", mandatorySurcharge: 0, extraPrice: 40 },
-  { id: "linguine", name: "Linguine", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/linguine.png", mandatorySurcharge: 0, extraPrice: 40 },
-  { id: "spaghetti", name: "Spaghetti", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/spaghetti.png", mandatorySurcharge: 0, extraPrice: 40 },
+  { id: "tubetti", name: "Tubetti", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", mandatorySurcharge: 5, extraPrice: 45 },
+  { id: "radiatori", name: "Radiatori", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg", mandatorySurcharge: 5, extraPrice: 45 },
+  { id: "rigatoni", name: "Rigatoni", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", mandatorySurcharge: 0, extraPrice: 40 },
+  { id: "linguine", name: "Linguine", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", mandatorySurcharge: 0, extraPrice: 40 },
+  { id: "spaghetti", name: "Spaghetti", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", mandatorySurcharge: 0, extraPrice: 40 },
 ];
 
 module.exports = { MENU, CATEGORIES, PASTA_OPTIONS };

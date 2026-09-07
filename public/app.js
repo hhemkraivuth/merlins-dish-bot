@@ -456,6 +456,16 @@ function renderReviewScreen() {
   document.getElementById("review-timing").textContent =
     timing === "ASAP" ? "Right away" : `Scheduled: ${scheduleText || "(not set)"}`;
 
+  const banner = document.getElementById("manual-fee-banner");
+  if (needsManualFee) {
+    banner.textContent =
+      `You're paying the food total (฿${cartTotal()}) now. Since you're outside our free 2km zone, ` +
+      `Merlin's Dish will message you here on LINE separately to arrange the delivery fee.`;
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+
   document.getElementById("pay-bank-info").textContent =
     `Transfer to ${SHOP_INFO.paymentInfo || "our bank account"}`;
   const qrImg = document.getElementById("pay-qr-image");

@@ -30,10 +30,40 @@ const multer = require("multer");
 const line = require("@line/bot-sdk");
 const axios = require("axios");
 const FormData = require("form-data");
+const cloudinary = require("cloudinary").v2;
 const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
 const { logOrder } = require("./sheetLogger");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+const hasCloudinaryCreds =
+  !!process.env.CLOUDINARY_CLOUD_NAME && !!process.env.CLOUDINARY_API_KEY && !!process.env.CLOUDINARY_API_SECRET;
+if (hasCloudinaryCreds) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
+
+// Saves a slip photo permanently (for your own accounting records) and
+// returns a stable URL, or null if Cloudinary isn't configured yet or
+// the upload fails -- callers should treat that as "couldn't archive
+// it, but don't block the order over it."
+async function uploadSlipPhoto(buffer, mimetype) {
+  if (!hasCloudinaryCreds) return null;
+  try {
+    const base64 = `data:${mimetype || "image/jpeg"};base64,${buffer.toString("base64")}`;
+    const result = await cloudinary.uploader.upload(base64, {
+      folder: "merlins-dish-slips",
+      resource_type: "image",
+    });
+    return result.secure_url;
+  } catch (err) {
+    console.error("Cloudinary slip upload failed (order still proceeds):", err.message);
+    return null;
+  }
+}
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -1048,6 +1078,7 @@ async function handleSlipImage(userId, messageId) {
 
   session.slipAmount = slip.amountInSlip;
   session.slipRef = slip.transRef;
+  session.slipUrl = await uploadSlipPhoto(imageBuffer, "image/jpeg");
   session.step = "awaiting_name_phone";
   await client.pushMessage(userId, {
     type: "text",
@@ -1120,14 +1151,20 @@ async function finishOrder(userId, replyToken, session) {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (target) {
     try {
-      await client.pushMessage(target, {
-        type: "text",
-        text:
-          `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
-          `Name: ${session.name}\nAddress: ${fullAddress}\nPhone: ${session.phone}\n\n` +
-          `Paid via: ${session.paymentMethod || "unknown"}\n` +
-          `Slip amount: ฿${session.slipAmount}\nSlip ref: ${session.slipRef}`,
-      });
+      const messages = [
+        {
+          type: "text",
+          text:
+            `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
+            `Name: ${session.name}\nAddress: ${fullAddress}\nPhone: ${session.phone}\n\n` +
+            `Paid via: ${session.paymentMethod || "unknown"}\n` +
+            `Slip amount: ฿${session.slipAmount}\nSlip ref: ${session.slipRef}`,
+        },
+      ];
+      if (session.slipUrl) {
+        messages.push({ type: "image", originalContentUrl: session.slipUrl, previewImageUrl: session.slipUrl });
+      }
+      await client.pushMessage(target, messages);
     } catch (err) {
       console.error("Failed to push new-order message to internal target:", err.message);
     }
@@ -1142,6 +1179,7 @@ async function finishOrder(userId, replyToken, session) {
     items: lines,
     total,
     slipRef: session.slipRef,
+    slipUrl: session.slipUrl,
   });
 
   const customerDeliveryLine =
@@ -1408,6 +1446,8 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     if (remaining <= 0) soldOut.add(line.itemId);
   }
 
+  const slipUrl = await uploadSlipPhoto(req.file.buffer, req.file.mimetype);
+
   const fullAddress = order.location
     ? await describeLocation(order.location.lat, order.location.lng)
     : order.addressText || "(not provided)";
@@ -1422,13 +1462,19 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (target) {
     try {
-      await client.pushMessage(target, {
-        type: "text",
-        text:
-          `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
-          `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
-          `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
-      });
+      const messages = [
+        {
+          type: "text",
+          text:
+            `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
+            `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
+            `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
+        },
+      ];
+      if (slipUrl) {
+        messages.push({ type: "image", originalContentUrl: slipUrl, previewImageUrl: slipUrl });
+      }
+      await client.pushMessage(target, messages);
     } catch (err) {
       console.error("Failed to push LIFF order to internal target:", err.message);
     }
@@ -1445,6 +1491,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     items: lines,
     total,
     slipRef: slip.transRef,
+    slipUrl,
   });
 
   if (order.lineUserId) {

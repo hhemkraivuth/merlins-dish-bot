@@ -53,6 +53,8 @@ html, body {
 h1, h2 {
   font-family: var(--font-headline);
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
   margin: 0;
 }
 h3 { margin: 0; font-weight: 700; }
@@ -95,7 +97,7 @@ button, input, textarea, select {
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark { font-size: 32px; }
-.topbar h1 { font-size: 22px; color: #fff; }
+.topbar h1 { font-size: 24px; color: #fff; }
 .topbar p { margin: 2px 0 0; font-size: 13px; opacity: 0.9; }
 
 .subbar {
@@ -108,7 +110,7 @@ button, input, textarea, select {
   top: 0;
   z-index: 5;
 }
-.subbar h2 { font-size: 19px; }
+.subbar h2 { font-size: 21px; }
 .back-btn {
   background: var(--card);
   border: 1px solid var(--line);
@@ -162,7 +164,7 @@ button, input, textarea, select {
   gap: 12px;
 }
 .category-heading {
-  font-size: 15px;
+  font-size: 18px;
   color: var(--ink-soft);
   margin: 10px 2px 0;
   font-weight: 800;
@@ -445,7 +447,7 @@ button, input, textarea, select {
   padding: 30px;
 }
 .confirm-badge { font-size: 52px; margin-bottom: 10px; }
-.confirm-wrap h2 { font-size: 24px; margin-bottom: 8px; }
+.confirm-wrap h2 { font-size: 26px; margin-bottom: 8px; }
 .confirm-wrap p { color: var(--ink-soft); margin-bottom: 22px; }
 
 /* ---------- toast ---------- */

@@ -294,6 +294,80 @@ function cartActionsQuickReply() {
   };
 }
 
+// A real cart review: each item shown with its own remove button, not
+// just "add more" or "clear everything". This is what "Edit cart" opens.
+function buildCartReviewFlex(cart) {
+  const lines = cartLines(cart);
+  const rows = [];
+  lines.forEach((l, i) => {
+    if (i > 0) rows.push({ type: "separator", margin: "md" });
+    rows.push({
+      type: "box",
+      layout: "horizontal",
+      margin: "md",
+      alignItems: "center",
+      contents: [
+        { type: "text", text: `${l.qty}x ${l.name}`, size: "sm", wrap: true, flex: 5 },
+        { type: "text", text: `฿${l.price * l.qty}`, size: "sm", align: "end", flex: 2 },
+        {
+          type: "button",
+          style: "link",
+          height: "sm",
+          flex: 1,
+          action: { type: "postback", label: "🗑", data: `remove_line:${l.id}` },
+        },
+      ],
+    });
+  });
+
+  return {
+    type: "flex",
+    altText: "Your cart",
+    contents: {
+      type: "bubble",
+      size: "mega",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          { type: "text", text: "Your Cart", weight: "bold", size: "lg" },
+          { type: "separator", margin: "md" },
+          ...rows,
+          { type: "separator", margin: "md" },
+          { type: "text", text: `Total: ฿${cartTotal(cart)}`, weight: "bold", margin: "md" },
+        ],
+      },
+    },
+  };
+}
+
+async function showCartReview(userId, replyToken) {
+  const session = getSession(userId);
+  if (cartLines(session.cart).length === 0) {
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: "Your cart is empty. What are you in the mood for?",
+      quickReply: cancelOnlyQuickReply(categoryQuickReply().items),
+    });
+    return;
+  }
+  await client.replyMessage(replyToken, [
+    buildCartReviewFlex(session.cart),
+    {
+      type: "text",
+      text: "Tap 🗑 to remove an item, or use the buttons below.",
+      quickReply: cartActionsQuickReply(),
+    },
+  ]);
+}
+
+async function handleRemoveLine(userId, replyToken, lineId) {
+  const session = getSession(userId);
+  delete session.cart[lineId];
+  return showCartReview(userId, replyToken);
+}
+
 async function sendCategoryCarousel(replyToken, catId, leadText) {
   const cat = CATEGORIES.find((c) => c.id === catId);
   const flex = buildMenuFlex(catId);
@@ -1155,19 +1229,33 @@ async function handleHumanHandoff(userId, replyToken, triggerText) {
 }
 
 async function handleFollow(userId, replyToken) {
+
   await client.replyMessage(replyToken, {
+
     type: "text",
+
     text:
+
       `Hello, welcome to the kitchen 🥘✨\n\n` +
+
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
+
       `Ready to order? Just type "menu" anytime.\n\n` +
+
       `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait.\n` +
+
       `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km.\n\n` +
+
       `Got a question instead? Just ask, we're happy to help, this isn't only for ordering.\n\n` +
+
       `Both ways, same magic.\n\n` +
+
       `Comfort Food Made With Magic ✨\n` +
+
       `—Merlin's Dish`,
+
   });
+
 }
 
 // ---------- webhook ----------
@@ -1222,7 +1310,8 @@ async function handleEvent(event) {
     if (data === "timing:asap") return handleTimingAsap(userId, event.replyToken);
     if (data === "timing:schedule") return handleTimingSchedule(userId, event.replyToken);
     if (data === "confirm_order") return askPaymentMethod(userId, event.replyToken);
-    if (data === "edit_order") return showMenu(userId, event.replyToken);
+    if (data === "edit_order") return showCartReview(userId, event.replyToken);
+    if (data.startsWith("remove_line:")) return handleRemoveLine(userId, event.replyToken, data.slice("remove_line:".length));
     if (data === "pay:bank") return handlePayBank(userId, event.replyToken);
     if (data === "pay:qr") return handlePayQr(userId, event.replyToken);
     if (data === "change_address") return handleChangeAddress(userId, event.replyToken);

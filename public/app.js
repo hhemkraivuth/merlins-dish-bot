@@ -1,0 +1,529 @@
+// ============================================================
+// MERLIN'S DISH -- LIFF ORDERING APP
+// ============================================================
+// This is a plain JavaScript single-page app (no build step, no
+// framework) so it can be edited directly on GitHub like the rest
+// of the bot. It talks to the same Express server as the LINE bot
+// (see server.js for the /api/* routes this file calls).
+//
+// ONE THING TO EDIT: paste your real LIFF ID below once you've
+// created it in the LINE Developers Console (see README).
+// ============================================================
+
+const LIFF_ID = "PASTE-YOUR-LIFF-ID-HERE";
+
+let MENU = [];
+let CATEGORIES = [];
+let PASTA_OPTIONS = [];
+let SHOP_INFO = {};
+let LINE_USER_ID = null;
+
+// cart: lineId -> { itemId, name, price, qty, pastaChoice }
+let cart = {};
+
+let activeCategory = null;
+let timing = "ASAP";
+let scheduleText = "";
+let deliveryLocation = null; // { lat, lng } or null
+let manualAddress = "";
+let needsManualFee = null; // true/false/null (unknown yet)
+let distanceKm = null;
+let addressNote = "";
+let paymentMethod = "bank";
+let slipFile = null;
+
+// ---------- screen navigation ----------
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach((el) => el.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  window.scrollTo(0, 0);
+}
+
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+  setTimeout(() => toast.classList.add("hidden"), 3500);
+}
+
+// ---------- startup ----------
+
+async function init() {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (liff.isLoggedIn()) {
+      const profile = await liff.getProfile();
+      LINE_USER_ID = profile.userId;
+    }
+  } catch (err) {
+    console.error("LIFF init failed (continuing anyway for browser testing):", err);
+  }
+
+  try {
+    const [menuRes, shopRes] = await Promise.all([
+      fetch("/api/menu").then((r) => r.json()),
+      fetch("/api/shop-info").then((r) => r.json()),
+    ]);
+    MENU = menuRes.items;
+    CATEGORIES = menuRes.categories;
+    PASTA_OPTIONS = menuRes.pastaOptions;
+    SHOP_INFO = shopRes;
+  } catch (err) {
+    console.error(err);
+    showToast("Couldn't load the menu. Please reopen the app.");
+    return;
+  }
+
+  renderCategoryTabs();
+  activeCategory = CATEGORIES[0] && CATEGORIES[0].id;
+  renderItemList();
+  wireStaticEvents();
+  showScreen("menu-screen");
+}
+
+// ---------- menu rendering ----------
+
+function renderCategoryTabs() {
+  const nav = document.getElementById("category-tabs");
+  nav.innerHTML = "";
+  CATEGORIES.forEach((cat) => {
+    const btn = document.createElement("button");
+    btn.className = "cat-tab" + (cat.id === activeCategory ? " active" : "");
+    btn.textContent = cat.label;
+    btn.dataset.cat = cat.id;
+    btn.addEventListener("click", () => {
+      activeCategory = cat.id;
+      renderCategoryTabs();
+      renderItemList();
+    });
+    nav.appendChild(btn);
+  });
+}
+
+function renderItemList() {
+  const list = document.getElementById("item-list");
+  list.innerHTML = "";
+  const items = MENU.filter((d) => d.category === activeCategory);
+
+  items.forEach((dish) => {
+    const card = document.createElement("div");
+    card.className = "item-card" + (!dish.available ? " unavailable" : "");
+
+    const img = dish.image
+      ? `<img class="item-img" src="${dish.image}" alt="${dish.name}" />`
+      : `<div class="item-img placeholder">🍽️</div>`;
+
+    let stockNote = "";
+    if (!dish.available) {
+      stockNote = `<p class="sold-out-note">Sold out today</p>`;
+    } else if (dish.remaining != null && dish.remaining <= 5) {
+      stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
+    }
+
+    if (dish.requiresPasta) {
+      card.innerHTML = `
+        ${img}
+        <div class="item-body">
+          <h3>${dish.name}</h3>
+          <p class="item-price">฿${dish.price}</p>
+          ${stockNote}
+          <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
+            <option value="">Choose pasta...</option>
+            ${PASTA_OPTIONS.map(
+              (p) =>
+                `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
+            ).join("")}
+          </select>
+          <div class="variant-row">
+            <div class="stepper local-stepper" data-qty="1">
+              <button type="button" class="minus">−</button>
+              <span class="qty">1</span>
+              <button type="button" class="plus">+</button>
+            </div>
+            <button type="button" class="add-line-btn" disabled>Add</button>
+          </div>
+        </div>
+      `;
+      const select = card.querySelector(".pasta-select");
+      const stepper = card.querySelector(".local-stepper");
+      const addBtn = card.querySelector(".add-line-btn");
+      const qtyEl = stepper.querySelector(".qty");
+
+      const updateAddEnabled = () => {
+        addBtn.disabled = !dish.available || !select.value;
+      };
+      select.addEventListener("change", updateAddEnabled);
+
+      stepper.querySelector(".minus").addEventListener("click", () => {
+        let n = parseInt(stepper.dataset.qty, 10);
+        if (n > 1) {
+          n -= 1;
+          stepper.dataset.qty = n;
+          qtyEl.textContent = n;
+        }
+      });
+      stepper.querySelector(".plus").addEventListener("click", () => {
+        let n = parseInt(stepper.dataset.qty, 10);
+        const max = dish.remaining != null ? dish.remaining : Infinity;
+        if (n < max) {
+          n += 1;
+          stepper.dataset.qty = n;
+          qtyEl.textContent = n;
+        }
+      });
+
+      addBtn.addEventListener("click", () => {
+        const pastaId = select.value;
+        const qty = parseInt(stepper.dataset.qty, 10);
+        const pasta = PASTA_OPTIONS.find((p) => p.id === pastaId);
+        const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
+        const lineId = `${dish.id}:${pastaId}`;
+        const name = `${dish.name} (${pasta ? pasta.name : pastaId})`;
+        addToCart(lineId, dish.id, name, dish.price + surcharge, qty, pastaId);
+        showToast(`Added ${qty}x ${name}`);
+        select.value = "";
+        stepper.dataset.qty = 1;
+        qtyEl.textContent = 1;
+        updateAddEnabled();
+      });
+
+      updateAddEnabled();
+    } else {
+      const currentQty = cart[dish.id] ? cart[dish.id].qty : 0;
+      card.innerHTML = `
+        ${img}
+        <div class="item-body">
+          <h3>${dish.name}</h3>
+          <p class="item-price">฿${dish.price}</p>
+          ${stockNote}
+          <div class="stepper" data-item="${dish.id}">
+            <button type="button" class="minus">−</button>
+            <span class="qty">${currentQty}</span>
+            <button type="button" class="plus">+</button>
+          </div>
+        </div>
+      `;
+      const stepper = card.querySelector(".stepper");
+      const qtyEl = stepper.querySelector(".qty");
+
+      stepper.querySelector(".minus").addEventListener("click", () => {
+        if (!cart[dish.id]) return;
+        cart[dish.id].qty -= 1;
+        if (cart[dish.id].qty <= 0) delete cart[dish.id];
+        qtyEl.textContent = cart[dish.id] ? cart[dish.id].qty : 0;
+        updateCartBar();
+      });
+      stepper.querySelector(".plus").addEventListener("click", () => {
+        if (!dish.available) return;
+        const existingQty = cart[dish.id] ? cart[dish.id].qty : 0;
+        const max = dish.remaining != null ? dish.remaining : Infinity;
+        if (existingQty >= max) {
+          showToast(`Only ${max} of "${dish.name}" left`);
+          return;
+        }
+        addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
+        qtyEl.textContent = cart[dish.id].qty;
+      });
+    }
+
+    list.appendChild(card);
+  });
+}
+
+function addToCart(lineId, itemId, name, price, qty, pastaChoice) {
+  if (cart[lineId]) {
+    cart[lineId].qty += qty;
+  } else {
+    cart[lineId] = { itemId, name, price, qty, pastaChoice };
+  }
+  updateCartBar();
+}
+
+function cartLines() {
+  return Object.entries(cart).map(([lineId, entry]) => ({ lineId, ...entry }));
+}
+
+function cartTotal() {
+  return cartLines().reduce((sum, l) => sum + l.price * l.qty, 0);
+}
+
+function updateCartBar() {
+  const bar = document.getElementById("cart-bar");
+  const lines = cartLines();
+  const count = lines.reduce((s, l) => s + l.qty, 0);
+  if (count === 0) {
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  document.getElementById("cart-count").textContent = `${count} item${count > 1 ? "s" : ""}`;
+  document.getElementById("cart-total").textContent = `฿${cartTotal()}`;
+}
+
+// ---------- cart review screen ----------
+
+function renderCartScreen() {
+  const wrap = document.getElementById("cart-lines");
+  const lines = cartLines();
+  wrap.innerHTML = "";
+  if (lines.length === 0) {
+    wrap.innerHTML = `<p class="empty-note">Your cart is empty.</p>`;
+  } else {
+    lines.forEach((l) => {
+      const row = document.createElement("div");
+      row.className = "cart-line";
+      row.innerHTML = `
+        <div class="cart-line-info">
+          <div class="name">${l.qty}x ${l.name}</div>
+          <div class="price">฿${l.price * l.qty}</div>
+        </div>
+        <button type="button" class="remove-line-btn" data-line="${l.lineId}">🗑</button>
+      `;
+      row.querySelector(".remove-line-btn").addEventListener("click", () => {
+        delete cart[l.lineId];
+        renderCartScreen();
+        renderItemList();
+        updateCartBar();
+      });
+      wrap.appendChild(row);
+    });
+  }
+  document.getElementById("cart-screen-total").textContent = `฿${cartTotal()}`;
+  document.getElementById("checkout-btn").disabled = lines.length === 0;
+}
+
+// ---------- delivery details screen ----------
+
+function distanceKmBetween(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function requestLocation() {
+  const resultEl = document.getElementById("location-result");
+  resultEl.classList.remove("hidden", "free", "manual");
+  resultEl.textContent = "Getting your location…";
+
+  if (!navigator.geolocation) {
+    resultEl.textContent = "Location isn't available on this device. Please type your address below.";
+    resultEl.classList.add("manual");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      deliveryLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      manualAddress = "";
+      if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null) {
+        distanceKm = distanceKmBetween(SHOP_INFO.shopLat, SHOP_INFO.shopLng, deliveryLocation.lat, deliveryLocation.lng);
+        needsManualFee = distanceKm > 2;
+        if (needsManualFee) {
+          resultEl.textContent = `You're ${distanceKm.toFixed(1)}km away, outside our free 2km zone. Merlin's Dish will confirm the delivery fee shortly.`;
+          resultEl.classList.add("manual");
+        } else {
+          resultEl.textContent = `You're ${distanceKm.toFixed(1)}km away, free delivery! 🎉`;
+          resultEl.classList.add("free");
+        }
+      } else {
+        needsManualFee = true;
+        resultEl.textContent = "Location received. Delivery fee will be confirmed by Merlin's Dish.";
+        resultEl.classList.add("manual");
+      }
+    },
+    (err) => {
+      console.error(err);
+      resultEl.textContent = "Couldn't get your location. Please type your address below instead.";
+      resultEl.classList.add("manual");
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+// ---------- review & pay screen ----------
+
+function renderReviewScreen() {
+  const linesWrap = document.getElementById("review-lines");
+  linesWrap.innerHTML = cartLines()
+    .map((l) => `<div class="summary-line"><span>${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
+    .join("");
+  document.getElementById("review-food-total").textContent = `฿${cartTotal()}`;
+  document.getElementById("review-delivery").textContent =
+    needsManualFee === false ? "FREE (within 2km)" : "To be confirmed";
+  document.getElementById("review-timing").textContent =
+    timing === "ASAP" ? "Right away" : `Scheduled: ${scheduleText || "(not set)"}`;
+
+  document.getElementById("pay-bank-info").textContent =
+    `Transfer to ${SHOP_INFO.paymentInfo || "our bank account"}`;
+  const qrImg = document.getElementById("pay-qr-image");
+  if (SHOP_INFO.qrImageUrl) {
+    qrImg.src = SHOP_INFO.qrImageUrl;
+  }
+  applyPaymentMethodUI();
+  updatePlaceOrderEnabled();
+}
+
+function applyPaymentMethodUI() {
+  document.getElementById("pay-bank-info").classList.toggle("hidden", paymentMethod !== "bank");
+  document.getElementById("pay-qr-image").classList.toggle("hidden", paymentMethod !== "qr");
+}
+
+function updatePlaceOrderEnabled() {
+  const name = document.getElementById("name-input").value.trim();
+  const phone = document.getElementById("phone-input").value.trim();
+  const ok = !!slipFile && name.length >= 2 && phone.replace(/\D/g, "").length >= 8;
+  document.getElementById("place-order-btn").disabled = !ok;
+}
+
+// ---------- submit order ----------
+
+async function submitOrder() {
+  const btn = document.getElementById("place-order-btn");
+  const status = document.getElementById("submit-status");
+  btn.disabled = true;
+  status.textContent = "Verifying your payment…";
+
+  const order = {
+    lineUserId: LINE_USER_ID,
+    items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice })),
+    timing,
+    scheduleText,
+    location: deliveryLocation,
+    addressText: manualAddress || null,
+    addressNote: document.getElementById("address-note").value.trim(),
+    needsManualFee,
+    distanceKm,
+    name: document.getElementById("name-input").value.trim(),
+    phone: document.getElementById("phone-input").value.trim(),
+    paymentMethod,
+  };
+
+  const form = new FormData();
+  form.append("order", JSON.stringify(order));
+  form.append("slip", slipFile);
+
+  try {
+    const res = await fetch("/api/place-order", { method: "POST", body: form });
+    const data = await res.json();
+
+    if (!data.success) {
+      status.textContent = data.message || "Something went wrong, please try again.";
+      btn.disabled = false;
+      return;
+    }
+
+    document.getElementById("confirm-message").textContent =
+      data.needsManualFee
+        ? "Your order is confirmed! Merlin's Dish will confirm your delivery fee shortly."
+        : "Your order is confirmed and on its way to the kitchen. Delivery is free for you!";
+    showScreen("confirm-screen");
+  } catch (err) {
+    console.error(err);
+    status.textContent = "Couldn't reach the kitchen. Check your connection and try again.";
+    btn.disabled = false;
+  }
+}
+
+function resetOrder() {
+  cart = {};
+  timing = "ASAP";
+  scheduleText = "";
+  deliveryLocation = null;
+  manualAddress = "";
+  needsManualFee = null;
+  distanceKm = null;
+  slipFile = null;
+  document.getElementById("schedule-text").value = "";
+  document.getElementById("manual-address").value = "";
+  document.getElementById("address-note").value = "";
+  document.getElementById("name-input").value = "";
+  document.getElementById("phone-input").value = "";
+  document.getElementById("slip-input").value = "";
+  document.getElementById("slip-preview").classList.add("hidden");
+  document.getElementById("location-result").classList.add("hidden");
+  updateCartBar();
+  renderItemList();
+  showScreen("menu-screen");
+}
+
+// ---------- wiring ----------
+
+function wireStaticEvents() {
+  document.querySelectorAll("[data-back]").forEach((btn) => {
+    btn.addEventListener("click", () => showScreen(btn.dataset.back));
+  });
+
+  document.getElementById("view-cart-btn").addEventListener("click", () => {
+    renderCartScreen();
+    showScreen("cart-screen");
+  });
+
+  document.getElementById("checkout-btn").addEventListener("click", () => {
+    showScreen("delivery-screen");
+  });
+
+  document.querySelectorAll("[data-timing]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      timing = btn.dataset.timing;
+      document.querySelectorAll("[data-timing]").forEach((b) => b.classList.toggle("active", b === btn));
+      document.getElementById("schedule-text").classList.toggle("hidden", timing !== "SCHEDULED");
+    });
+  });
+  document.getElementById("schedule-text").addEventListener("input", (e) => {
+    scheduleText = e.target.value;
+  });
+
+  document.getElementById("share-location-btn").addEventListener("click", requestLocation);
+  document.getElementById("manual-address").addEventListener("input", (e) => {
+    manualAddress = e.target.value;
+    if (manualAddress.trim().length >= 5) {
+      deliveryLocation = null;
+      needsManualFee = true;
+      distanceKm = null;
+    }
+  });
+
+  document.getElementById("to-review-btn").addEventListener("click", () => {
+    if (!deliveryLocation && manualAddress.trim().length < 5) {
+      showToast("Please share your location or type your address first.");
+      return;
+    }
+    addressNote = document.getElementById("address-note").value.trim();
+    renderReviewScreen();
+    showScreen("review-screen");
+  });
+
+  document.querySelectorAll("[data-pay]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      paymentMethod = btn.dataset.pay;
+      document.querySelectorAll("[data-pay]").forEach((b) => b.classList.toggle("active", b === btn));
+      applyPaymentMethodUI();
+    });
+  });
+
+  document.getElementById("slip-input").addEventListener("change", (e) => {
+    slipFile = e.target.files[0] || null;
+    const preview = document.getElementById("slip-preview");
+    if (slipFile) {
+      preview.innerHTML = `<img src="${URL.createObjectURL(slipFile)}" alt="Slip preview" />`;
+      preview.classList.remove("hidden");
+    } else {
+      preview.classList.add("hidden");
+    }
+    updatePlaceOrderEnabled();
+  });
+
+  document.getElementById("name-input").addEventListener("input", updatePlaceOrderEnabled);
+  document.getElementById("phone-input").addEventListener("input", updatePlaceOrderEnabled);
+
+  document.getElementById("place-order-btn").addEventListener("click", submitOrder);
+  document.getElementById("new-order-btn").addEventListener("click", resetOrder);
+}
+
+init();

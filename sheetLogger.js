@@ -30,7 +30,7 @@ function getClient() {
   return sheetsClient;
 }
 
-// order = { name, address, phone, items: [{name, qty, price}], total, slipRef }
+// order = { name, address, phone, items: [{name, qty, price}], total, slipRef, slipUrl }
 async function logOrder(order) {
   const client = getClient();
   if (!client) return; // Sheet logging not configured -- skip silently.
@@ -53,12 +53,13 @@ async function logOrder(order) {
     order.address,
     order.phone,
     order.slipRef || "",
+    order.slipUrl || "", // Link to the saved slip photo, for accounting
   ];
 
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Master Log!A:M",
+      range: "Master Log!A:N",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [row] },
     });

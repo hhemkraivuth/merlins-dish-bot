@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -78,11 +79,12 @@
 
     <section class="field-group">
       <label>Delivery location</label>
-      <button type="button" id="share-location-btn" class="btn btn-secondary btn-block">📍 Share my location</button>
-      <p class="hint">We'll use this to check if you're within our free 2km delivery zone.</p>
+      <p class="hint">Drag the pin to the exact delivery spot -- it doesn't have to be where you are right now.</p>
+      <div id="map" class="map-container"></div>
+      <button type="button" id="use-my-location-btn" class="btn btn-secondary btn-block">📍 Use my current location</button>
       <div id="location-result" class="location-result hidden"></div>
       <details class="manual-address-toggle">
-        <summary>Can't share location? Type your address instead</summary>
+        <summary>Prefer to type the address instead?</summary>
         <textarea id="manual-address" class="text-input" rows="2" placeholder="Full delivery address"></textarea>
       </details>
     </section>
@@ -123,7 +125,7 @@
 
     <section class="field-group">
       <label for="slip-input">Payment slip</label>
-      <input type="file" id="slip-input" accept="image/*" capture="environment" />
+      <input type="file" id="slip-input" accept="image/*" />
       <div id="slip-preview" class="slip-preview hidden"></div>
     </section>
 

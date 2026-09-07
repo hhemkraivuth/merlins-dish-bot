@@ -306,44 +306,73 @@ function distanceKmBetween(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function requestLocation() {
-  const resultEl = document.getElementById("location-result");
-  resultEl.classList.remove("hidden", "free", "manual");
-  resultEl.textContent = "Getting your location…";
+let map = null;
+let mapMarker = null;
 
-  if (!navigator.geolocation) {
-    resultEl.textContent = "Location isn't available on this device. Please type your address below.";
-    resultEl.classList.add("manual");
+function ensureMapInitialized() {
+  if (map) {
+    // The map screen was hidden (display:none) when first created, so
+    // its size wasn't known then -- fix that now that it's visible.
+    setTimeout(() => map.invalidateSize(), 50);
     return;
   }
+  const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
+  map = L.map("map").setView(defaultCenter, 15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  mapMarker = L.marker(defaultCenter, { draggable: true }).addTo(map);
+  mapMarker.on("dragend", () => {
+    const pos = mapMarker.getLatLng();
+    setDeliveryLocation(pos.lat, pos.lng);
+  });
+  // Try to center on the customer's real location first, but this is
+  // just a starting point -- they can drag the pin anywhere from here,
+  // e.g. when ordering for delivery somewhere they aren't right now.
+  useMyLocation(true);
+}
 
+function useMyLocation(silent) {
+  if (!navigator.geolocation) {
+    if (!silent) showToast("Location isn't available on this device. Drag the pin manually.");
+    return;
+  }
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      deliveryLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      manualAddress = "";
-      if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null) {
-        distanceKm = distanceKmBetween(SHOP_INFO.shopLat, SHOP_INFO.shopLng, deliveryLocation.lat, deliveryLocation.lng);
-        needsManualFee = distanceKm > 2;
-        if (needsManualFee) {
-          resultEl.textContent = `You're ${distanceKm.toFixed(1)}km away, outside our free 2km zone. Merlin's Dish will confirm the delivery fee shortly.`;
-          resultEl.classList.add("manual");
-        } else {
-          resultEl.textContent = `You're ${distanceKm.toFixed(1)}km away, free delivery! 🎉`;
-          resultEl.classList.add("free");
-        }
-      } else {
-        needsManualFee = true;
-        resultEl.textContent = "Location received. Delivery fee will be confirmed by Merlin's Dish.";
-        resultEl.classList.add("manual");
-      }
+      const { latitude, longitude } = pos.coords;
+      map.setView([latitude, longitude], 16);
+      mapMarker.setLatLng([latitude, longitude]);
+      setDeliveryLocation(latitude, longitude);
     },
     (err) => {
       console.error(err);
-      resultEl.textContent = "Couldn't get your location. Please type your address below instead.";
-      resultEl.classList.add("manual");
+      if (!silent) showToast("Couldn't get your location. Please drag the pin manually.");
     },
     { enableHighAccuracy: true, timeout: 10000 }
   );
+}
+
+function setDeliveryLocation(lat, lng) {
+  deliveryLocation = { lat, lng };
+  manualAddress = "";
+  const resultEl = document.getElementById("location-result");
+  resultEl.classList.remove("hidden", "free", "manual");
+  if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null) {
+    distanceKm = distanceKmBetween(SHOP_INFO.shopLat, SHOP_INFO.shopLng, lat, lng);
+    needsManualFee = distanceKm > 2;
+    if (needsManualFee) {
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, outside our free 2km zone. Merlin's Dish will confirm the delivery fee shortly.`;
+      resultEl.classList.add("manual");
+    } else {
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, free delivery! 🎉`;
+      resultEl.classList.add("free");
+    }
+  } else {
+    needsManualFee = true;
+    resultEl.textContent = "Location set. Delivery fee will be confirmed by Merlin's Dish.";
+    resultEl.classList.add("manual");
+  }
 }
 
 // ---------- review & pay screen ----------
@@ -420,8 +449,8 @@ async function submitOrder() {
 
     document.getElementById("confirm-message").textContent =
       data.needsManualFee
-        ? "Your order is confirmed! Merlin's Dish will confirm your delivery fee shortly."
-        : "Your order is confirmed and on its way to the kitchen. Delivery is free for you!";
+        ? "All set! The food will be with you shortly. Merlin's Dish will confirm your delivery fee separately. You can close this window."
+        : "All set! The food will be with you shortly, delivery is free for you. You can close this window.";
     showScreen("confirm-screen");
   } catch (err) {
     console.error(err);
@@ -466,6 +495,7 @@ function wireStaticEvents() {
 
   document.getElementById("checkout-btn").addEventListener("click", () => {
     showScreen("delivery-screen");
+    ensureMapInitialized();
   });
 
   document.querySelectorAll("[data-timing]").forEach((btn) => {
@@ -479,7 +509,7 @@ function wireStaticEvents() {
     scheduleText = e.target.value;
   });
 
-  document.getElementById("share-location-btn").addEventListener("click", requestLocation);
+  document.getElementById("use-my-location-btn").addEventListener("click", () => useMyLocation(false));
   document.getElementById("manual-address").addEventListener("input", (e) => {
     manualAddress = e.target.value;
     if (manualAddress.trim().length >= 5) {

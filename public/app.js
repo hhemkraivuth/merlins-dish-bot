@@ -21,7 +21,6 @@ let LINE_USER_ID = null;
 // cart: lineId -> { itemId, name, price, qty, pastaChoice }
 let cart = {};
 
-let activeCategory = null;
 let timing = "ASAP";
 let scheduleText = "";
 let deliveryLocation = null; // { lat, lng } or null
@@ -40,11 +39,19 @@ function showScreen(id) {
   window.scrollTo(0, 0);
 }
 
-function showToast(message) {
+function showToast(message, isError) {
   const toast = document.getElementById("toast");
   toast.textContent = message;
+  toast.classList.toggle("toast-error", !!isError);
   toast.classList.remove("hidden");
-  setTimeout(() => toast.classList.add("hidden"), 3500);
+  setTimeout(() => toast.classList.add("hidden"), isError ? 5000 : 3500);
+}
+
+function flashInvalid(elementId) {
+  const el = document.getElementById(elementId);
+  el.classList.add("flash-invalid");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => el.classList.remove("flash-invalid"), 1600);
 }
 
 // ---------- startup ----------
@@ -76,7 +83,6 @@ async function init() {
   }
 
   renderCategoryTabs();
-  activeCategory = CATEGORIES[0] && CATEGORIES[0].id;
   renderItemList();
   wireStaticEvents();
   showScreen("menu-screen");
@@ -89,146 +95,189 @@ function renderCategoryTabs() {
   nav.innerHTML = "";
   CATEGORIES.forEach((cat) => {
     const btn = document.createElement("button");
-    btn.className = "cat-tab" + (cat.id === activeCategory ? " active" : "");
+    btn.className = "cat-tab";
     btn.textContent = cat.label;
     btn.dataset.cat = cat.id;
     btn.addEventListener("click", () => {
-      activeCategory = cat.id;
-      renderCategoryTabs();
-      renderItemList();
+      const section = document.getElementById(`section-${cat.id}`);
+      if (!section) return;
+      const navHeight = document.getElementById("category-tabs").offsetHeight;
+      const top = section.getBoundingClientRect().top + window.scrollY - navHeight - 8;
+      window.scrollTo({ top, behavior: "smooth" });
     });
     nav.appendChild(btn);
   });
+  setActiveTab(CATEGORIES[0] && CATEGORIES[0].id);
 }
 
+function setActiveTab(catId) {
+  document.querySelectorAll(".cat-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.cat === catId);
+  });
+}
+
+// One continuous scrolling list, sectioned by category, instead of
+// swiping between separate category screens.
 function renderItemList() {
   const list = document.getElementById("item-list");
   list.innerHTML = "";
-  const items = MENU.filter((d) => d.category === activeCategory);
 
-  items.forEach((dish) => {
-    const card = document.createElement("div");
-    card.className = "item-card" + (!dish.available ? " unavailable" : "");
+  CATEGORIES.forEach((cat) => {
+    const items = MENU.filter((d) => d.category === cat.id);
+    if (items.length === 0) return;
 
-    const img = dish.image
-      ? `<img class="item-img" src="${dish.image}" alt="${dish.name}" />`
-      : `<div class="item-img placeholder">🍽️</div>`;
+    const heading = document.createElement("h2");
+    heading.className = "category-heading";
+    heading.id = `section-${cat.id}`;
+    heading.textContent = cat.label;
+    list.appendChild(heading);
 
-    let stockNote = "";
-    if (!dish.available) {
-      stockNote = `<p class="sold-out-note">Sold out today</p>`;
-    } else if (dish.remaining != null && dish.remaining <= 5) {
-      stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
-    }
+    items.forEach((dish) => list.appendChild(buildItemCard(dish)));
+  });
 
-    if (dish.requiresPasta) {
-      card.innerHTML = `
-        ${img}
-        <div class="item-body">
-          <h3>${dish.name}</h3>
-          <p class="item-price">฿${dish.price}</p>
-          ${stockNote}
-          <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
-            <option value="">Choose pasta...</option>
-            ${PASTA_OPTIONS.map(
-              (p) =>
-                `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
-            ).join("")}
-          </select>
-          <div class="variant-row">
-            <div class="stepper local-stepper" data-qty="1">
-              <button type="button" class="minus">−</button>
-              <span class="qty">1</span>
-              <button type="button" class="plus">+</button>
-            </div>
-            <button type="button" class="add-line-btn" disabled>Add</button>
-          </div>
-        </div>
-      `;
-      const select = card.querySelector(".pasta-select");
-      const stepper = card.querySelector(".local-stepper");
-      const addBtn = card.querySelector(".add-line-btn");
-      const qtyEl = stepper.querySelector(".qty");
+  setupSectionScrollSpy();
+}
 
-      const updateAddEnabled = () => {
-        addBtn.disabled = !dish.available || !select.value;
-      };
-      select.addEventListener("change", updateAddEnabled);
-
-      stepper.querySelector(".minus").addEventListener("click", () => {
-        let n = parseInt(stepper.dataset.qty, 10);
-        if (n > 1) {
-          n -= 1;
-          stepper.dataset.qty = n;
-          qtyEl.textContent = n;
+// Highlights the matching tab as its section scrolls into view.
+function setupSectionScrollSpy() {
+  const sections = CATEGORIES.map((c) => document.getElementById(`section-${c.id}`)).filter(Boolean);
+  if (!sections.length || !("IntersectionObserver" in window)) return;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const catId = entry.target.id.replace("section-", "");
+          setActiveTab(catId);
         }
       });
-      stepper.querySelector(".plus").addEventListener("click", () => {
-        let n = parseInt(stepper.dataset.qty, 10);
-        const max = dish.remaining != null ? dish.remaining : Infinity;
-        if (n < max) {
-          n += 1;
-          stepper.dataset.qty = n;
-          qtyEl.textContent = n;
-        }
-      });
+    },
+    { rootMargin: "-30% 0px -60% 0px" }
+  );
+  sections.forEach((el) => observer.observe(el));
+}
 
-      addBtn.addEventListener("click", () => {
-        const pastaId = select.value;
-        const qty = parseInt(stepper.dataset.qty, 10);
-        const pasta = PASTA_OPTIONS.find((p) => p.id === pastaId);
-        const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
-        const lineId = `${dish.id}:${pastaId}`;
-        const name = `${dish.name} (${pasta ? pasta.name : pastaId})`;
-        addToCart(lineId, dish.id, name, dish.price + surcharge, qty, pastaId);
-        showToast(`Added ${qty}x ${name}`);
-        select.value = "";
-        stepper.dataset.qty = 1;
-        qtyEl.textContent = 1;
-        updateAddEnabled();
-      });
+function buildItemCard(dish) {
+  const card = document.createElement("div");
+  card.className = "item-card" + (!dish.available ? " unavailable" : "");
 
-      updateAddEnabled();
-    } else {
-      const currentQty = cart[dish.id] ? cart[dish.id].qty : 0;
-      card.innerHTML = `
-        ${img}
-        <div class="item-body">
-          <h3>${dish.name}</h3>
-          <p class="item-price">฿${dish.price}</p>
-          ${stockNote}
-          <div class="stepper" data-item="${dish.id}">
+  const img = dish.image
+    ? `<img class="item-img" src="${dish.image}" alt="${dish.name}" />`
+    : `<div class="item-img placeholder">🍽️</div>`;
+
+  let stockNote = "";
+  if (!dish.available) {
+    stockNote = `<p class="sold-out-note">Sold out today</p>`;
+  } else if (dish.remaining != null && dish.remaining <= 5) {
+    stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
+  }
+
+  if (dish.requiresPasta) {
+    card.innerHTML = `
+      ${img}
+      <div class="item-body">
+        <h3>${dish.name}</h3>
+        <p class="item-price">฿${dish.price}</p>
+        ${stockNote}
+        <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
+          <option value="">Choose pasta...</option>
+          ${PASTA_OPTIONS.map(
+            (p) =>
+              `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
+          ).join("")}
+        </select>
+        <div class="variant-row">
+          <div class="stepper local-stepper" data-qty="1">
             <button type="button" class="minus">−</button>
-            <span class="qty">${currentQty}</span>
+            <span class="qty">1</span>
             <button type="button" class="plus">+</button>
           </div>
+          <button type="button" class="add-line-btn" disabled>Add</button>
         </div>
-      `;
-      const stepper = card.querySelector(".stepper");
-      const qtyEl = stepper.querySelector(".qty");
+      </div>
+    `;
+    const select = card.querySelector(".pasta-select");
+    const stepper = card.querySelector(".local-stepper");
+    const addBtn = card.querySelector(".add-line-btn");
+    const qtyEl = stepper.querySelector(".qty");
 
-      stepper.querySelector(".minus").addEventListener("click", () => {
-        if (!cart[dish.id]) return;
-        cart[dish.id].qty -= 1;
-        if (cart[dish.id].qty <= 0) delete cart[dish.id];
-        qtyEl.textContent = cart[dish.id] ? cart[dish.id].qty : 0;
-        updateCartBar();
-      });
-      stepper.querySelector(".plus").addEventListener("click", () => {
-        if (!dish.available) return;
-        const existingQty = cart[dish.id] ? cart[dish.id].qty : 0;
-        const max = dish.remaining != null ? dish.remaining : Infinity;
-        if (existingQty >= max) {
-          showToast(`Only ${max} of "${dish.name}" left`);
-          return;
-        }
-        addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
-        qtyEl.textContent = cart[dish.id].qty;
-      });
-    }
+    const updateAddEnabled = () => {
+      addBtn.disabled = !dish.available || !select.value;
+    };
+    select.addEventListener("change", updateAddEnabled);
 
-    list.appendChild(card);
-  });
+    stepper.querySelector(".minus").addEventListener("click", () => {
+      let n = parseInt(stepper.dataset.qty, 10);
+      if (n > 1) {
+        n -= 1;
+        stepper.dataset.qty = n;
+        qtyEl.textContent = n;
+      }
+    });
+    stepper.querySelector(".plus").addEventListener("click", () => {
+      let n = parseInt(stepper.dataset.qty, 10);
+      const max = dish.remaining != null ? dish.remaining : Infinity;
+      if (n < max) {
+        n += 1;
+        stepper.dataset.qty = n;
+        qtyEl.textContent = n;
+      }
+    });
+
+    addBtn.addEventListener("click", () => {
+      const pastaId = select.value;
+      const qty = parseInt(stepper.dataset.qty, 10);
+      const pasta = PASTA_OPTIONS.find((p) => p.id === pastaId);
+      const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
+      const lineId = `${dish.id}:${pastaId}`;
+      const name = `${dish.name} (${pasta ? pasta.name : pastaId})`;
+      addToCart(lineId, dish.id, name, dish.price + surcharge, qty, pastaId);
+      showToast(`Added ${qty}x ${name}`);
+      select.value = "";
+      stepper.dataset.qty = 1;
+      qtyEl.textContent = 1;
+      updateAddEnabled();
+    });
+
+    updateAddEnabled();
+  } else {
+    const currentQty = cart[dish.id] ? cart[dish.id].qty : 0;
+    card.innerHTML = `
+      ${img}
+      <div class="item-body">
+        <h3>${dish.name}</h3>
+        <p class="item-price">฿${dish.price}</p>
+        ${stockNote}
+        <div class="stepper" data-item="${dish.id}">
+          <button type="button" class="minus">−</button>
+          <span class="qty">${currentQty}</span>
+          <button type="button" class="plus">+</button>
+        </div>
+      </div>
+    `;
+    const stepper = card.querySelector(".stepper");
+    const qtyEl = stepper.querySelector(".qty");
+
+    stepper.querySelector(".minus").addEventListener("click", () => {
+      if (!cart[dish.id]) return;
+      cart[dish.id].qty -= 1;
+      if (cart[dish.id].qty <= 0) delete cart[dish.id];
+      qtyEl.textContent = cart[dish.id] ? cart[dish.id].qty : 0;
+      updateCartBar();
+    });
+    stepper.querySelector(".plus").addEventListener("click", () => {
+      if (!dish.available) return;
+      const existingQty = cart[dish.id] ? cart[dish.id].qty : 0;
+      const max = dish.remaining != null ? dish.remaining : Infinity;
+      if (existingQty >= max) {
+        showToast(`Only ${max} of "${dish.name}" left`);
+        return;
+      }
+      addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
+      qtyEl.textContent = cart[dish.id].qty;
+    });
+  }
+
+  return card;
 }
 
 function addToCart(lineId, itemId, name, price, qty, pastaChoice) {
@@ -316,24 +365,43 @@ function ensureMapInitialized() {
     setTimeout(() => map.invalidateSize(), 50);
     return;
   }
-  const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
-  map = L.map("map").setView(defaultCenter, 15);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors",
-  }).addTo(map);
-  mapMarker = L.marker(defaultCenter, { draggable: true }).addTo(map);
-  mapMarker.on("dragend", () => {
-    const pos = mapMarker.getLatLng();
-    setDeliveryLocation(pos.lat, pos.lng);
-  });
-  // Try to center on the customer's real location first, but this is
-  // just a starting point -- they can drag the pin anywhere from here,
-  // e.g. when ordering for delivery somewhere they aren't right now.
-  useMyLocation(true);
+  if (typeof L === "undefined") {
+    console.error("Leaflet failed to load -- falling back to manual address entry.");
+    fallBackToManualAddress();
+    return;
+  }
+  try {
+    const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
+    map = L.map("map").setView(defaultCenter, 15);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+    mapMarker = L.marker(defaultCenter, { draggable: true }).addTo(map);
+    mapMarker.on("dragend", () => {
+      const pos = mapMarker.getLatLng();
+      setDeliveryLocation(pos.lat, pos.lng);
+    });
+    // Try to center on the customer's real location first, but this is
+    // just a starting point -- they can drag the pin anywhere from here,
+    // e.g. when ordering for delivery somewhere they aren't right now.
+    useMyLocation(true);
+  } catch (err) {
+    console.error("Map failed to initialize:", err);
+    fallBackToManualAddress();
+  }
+}
+
+function fallBackToManualAddress() {
+  document.getElementById("map").outerHTML =
+    '<p class="hint">Map couldn\'t load, please type your address below instead.</p>';
+  document.getElementById("use-my-location-btn").classList.add("hidden");
+  const details = document.querySelector(".manual-address-toggle");
+  if (details) details.setAttribute("open", "");
 }
 
 function useMyLocation(silent) {
+  if (!map || !mapMarker) return; // map failed to load; manual address is already shown instead
   if (!navigator.geolocation) {
     if (!silent) showToast("Location isn't available on this device. Drag the pin manually.");
     return;
@@ -521,7 +589,8 @@ function wireStaticEvents() {
 
   document.getElementById("to-review-btn").addEventListener("click", () => {
     if (!deliveryLocation && manualAddress.trim().length < 5) {
-      showToast("Please share your location or type your address first.");
+      showToast("Please set your delivery location below first.", true);
+      flashInvalid("map");
       return;
     }
     addressNote = document.getElementById("address-note").value.trim();

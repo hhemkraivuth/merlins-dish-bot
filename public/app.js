@@ -10,7 +10,7 @@
 // created it in the LINE Developers Console (see README).
 // ============================================================
 
-const LIFF_ID = "PASTE-YOUR-LIFF-ID-HERE";
+const LIFF_ID = "2011487934-vA458ABe";
 
 let MENU = [];
 let CATEGORIES = [];

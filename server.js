@@ -134,6 +134,29 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Best-effort: turn coordinates from the LIFF app's map into something
+// you can actually act on -- a readable address (via OpenStreetMap's
+// free Nominatim service, no API key needed) plus a Google Maps link
+// you can tap to open directly and share with a Grab rider. If the
+// reverse-geocode lookup fails for any reason, the Maps link alone is
+// still enough to work with.
+async function describeLocation(lat, lng) {
+  const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
+  try {
+    const res = await axios.get("https://nominatim.openstreetmap.org/reverse", {
+      params: { lat, lon: lng, format: "json" },
+      headers: { "User-Agent": "MerlinsDishBot/1.0" },
+      timeout: 5000,
+    });
+    if (res.data && res.data.display_name) {
+      return `${res.data.display_name}\n${mapsLink}`;
+    }
+  } catch (err) {
+    console.error("Reverse geocode failed (Maps link still included):", err.message);
+  }
+  return mapsLink;
+}
+
 // ---------- menu display (categories + Flex carousel) ----------
 
 function availableInCategory(catId) {
@@ -1386,7 +1409,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   }
 
   const fullAddress = order.location
-    ? `Lat ${order.location.lat}, Lng ${order.location.lng}`
+    ? await describeLocation(order.location.lat, order.location.lng)
     : order.addressText || "(not provided)";
   const addressWithNote = order.addressNote ? `${fullAddress} -- ${order.addressNote}` : fullAddress;
   const timingLine = order.timing === "SCHEDULED" ? `Scheduled: ${order.scheduleText}` : "Right away";

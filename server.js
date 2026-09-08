@@ -90,10 +90,10 @@ function resetSession(userId) {
 // on restart -- if that ever matters to you, say so and we'll persist it.
 const soldOut = new Set();
 
-// Pending ">2km" delivery-fee requests from the LIFF app, waiting on you
+// Pending ">5km" delivery-fee requests from the LIFF app, waiting on you
 // to reply with a number in your private group. Keyed by a short request
 // id; oldest unresolved request is matched to your next numeric reply.
-// This assumes you're not juggling many >2km orders at the exact same
+// This assumes you're not juggling many >5km orders at the exact same
 // moment -- reasonable for a solo, low-volume kitchen, but worth knowing
 // if that ever changes.
 const pendingFeeRequests = new Map();
@@ -173,6 +173,14 @@ function distanceKm(lat1, lon1, lat2, lon2) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Delivery fee tiers, mirrored from public/app.js's computeDeliveryFee():
+// 0-2km free, 2-5km flat ฿50, beyond 5km needs Merlin's manual confirmation.
+function computeDeliveryFee(km) {
+  if (km <= 2) return { fee: 0, manual: false };
+  if (km <= 5) return { fee: 50, manual: false };
+  return { fee: null, manual: true };
 }
 
 // Best-effort: turn coordinates from the LIFF app's map into something
@@ -772,19 +780,21 @@ async function handleLocationShared(userId, replyToken, message) {
   } else {
     const d = distanceKm(shopLat, shopLng, message.latitude, message.longitude);
     session.distanceKm = d;
-    if (d <= 2) {
-      session.deliveryFee = 0;
-      session.needsManualFee = false;
-    } else {
-      session.needsManualFee = true;
+    const tier = computeDeliveryFee(d);
+    session.needsManualFee = tier.manual;
+    if (tier.manual) {
       await pingManualFeeNeeded(d);
+    } else {
+      session.deliveryFee = tier.fee;
     }
   }
 
   session.step = "awaiting_address_note";
   const feeMsg =
     session.needsManualFee === false
-      ? "You're within our free delivery zone! 🎉"
+      ? session.deliveryFee === 0
+        ? "You're within our free delivery zone! 🎉"
+        : `Delivery fee for your location: ฿${session.deliveryFee}.`
       : "Noted -- Merlin's Dish will confirm your delivery fee shortly.";
   await client.replyMessage(replyToken, {
     type: "text",
@@ -872,7 +882,7 @@ async function handleChangeAddress(userId, replyToken) {
 async function pingManualFeeNeeded(d) {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (!target) return;
-  const distanceText = d == null ? "an unknown distance (customer typed their address instead of sharing a pin)" : `${d.toFixed(1)}km away (outside the free 2km zone)`;
+  const distanceText = d == null ? "an unknown distance (customer typed their address instead of sharing a pin)" : `${d.toFixed(1)}km away (outside the 5km flat-rate zone)`;
   try {
     await client.pushMessage(target, {
       type: "text",
@@ -897,7 +907,9 @@ async function showFinalSummary(userId, replyToken) {
     session.timing === "ASAP" ? "Timing: Right away" : `Timing: Scheduled for ${session.scheduleText}`;
   const deliveryLine =
     session.needsManualFee === false
-      ? "Delivery: FREE (within 2km)"
+      ? session.deliveryFee === 0
+        ? "Delivery: FREE (within 2km)"
+        : `Delivery fee: ฿${session.deliveryFee} (2-5km)`
       : "Delivery fee: to be confirmed by Merlin's Dish";
 
   await client.replyMessage(replyToken, {
@@ -1133,7 +1145,9 @@ async function forwardForManualReview(userId, session, reason) {
 
 async function finishOrder(userId, replyToken, session) {
   const lines = cartLines(session.cart);
-  const total = cartTotal(session.cart);
+  const foodTotal = cartTotal(session.cart);
+  const deliveryFeeAmount = session.needsManualFee ? 0 : session.deliveryFee || 0;
+  const total = foodTotal + deliveryFeeAmount;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
 
   // Deduct from any tracked stock counts now that the order is confirmed.
@@ -1154,9 +1168,11 @@ async function finishOrder(userId, replyToken, session) {
 
   const deliveryLine =
     session.needsManualFee === false
-      ? `Delivery: FREE (${session.distanceKm.toFixed(1)}km, within 2km zone)`
+      ? deliveryFeeAmount === 0
+        ? `Delivery: FREE (${session.distanceKm.toFixed(1)}km, within 2km zone)`
+        : `Delivery: ฿${deliveryFeeAmount} (${session.distanceKm.toFixed(1)}km, 2-5km zone)`
       : session.distanceKm != null
-      ? `Delivery fee: TO BE CONFIRMED (${session.distanceKm.toFixed(1)}km, outside free zone)`
+      ? `Delivery fee: TO BE CONFIRMED (${session.distanceKm.toFixed(1)}km, outside 5km zone)`
       : `Delivery fee: TO BE CONFIRMED (typed address, distance not calculated)`;
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;
@@ -1166,7 +1182,7 @@ async function finishOrder(userId, replyToken, session) {
         {
           type: "text",
           text:
-            `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
+            `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${foodTotal}\nTiming: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
             `Name: ${session.name}\nAddress: ${fullAddress}\nPhone: ${session.phone}\n\n` +
             `Paid via: ${session.paymentMethod || "unknown"}\n` +
             `Slip amount: ฿${session.slipAmount}\nSlip ref: ${session.slipRef}`,
@@ -1195,7 +1211,9 @@ async function finishOrder(userId, replyToken, session) {
 
   const customerDeliveryLine =
     session.needsManualFee === false
-      ? "Delivery is free for you!"
+      ? deliveryFeeAmount === 0
+        ? "Delivery is free for you!"
+        : `Your delivery fee is ฿${deliveryFeeAmount}.`
       : "We'll confirm your delivery fee with you shortly.";
 
   await client.pushMessage(userId, {
@@ -1352,7 +1370,7 @@ async function handleFollow(userId, replyToken) {
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
       `Ready to order? Just type "menu" anytime.\n\n` +
       `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait.\n` +
-      `🪄 Got a little time? Order direct with us here for lower menu prices and free delivery within 2km.\n\n` +
+      `🪄 Got a little time? Order direct with us here for lower menu prices, free delivery within 2km, and a flat ฿50 for 2-5km.\n\n` +
       `Got a question instead? Just ask, we're happy to help, this isn't only for ordering.\n\n` +
       `Both ways, same magic.\n\n` +
       `Comfort Food Made With Magic ✨\n` +
@@ -1390,8 +1408,9 @@ app.get("/api/shop-info", (req, res) => {
   });
 });
 
-// Called when a LIFF customer is outside the free 2km zone. Pings your
-// private group and hands back a request id the app polls for the fee.
+// Called when a LIFF customer is beyond the 5km flat-rate zone (0-2km free,
+// 2-5km flat ฿50 are both handled automatically and never reach this route).
+// Pings your private group and hands back a request id the app polls for the fee.
 app.post("/api/request-delivery-fee", express.json(), async (req, res) => {
   const { lineUserId, items, distanceKm, addressNote } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
@@ -1501,10 +1520,28 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
 
   const foodTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
 
-  // Never trust a fee number from the browser -- look up what was
-  // actually confirmed server-side via the pending request id.
+  // Never trust a fee number from the browser. For >5km orders, look up
+  // what Merlin's Dish actually confirmed via the pending request id. For
+  // 0-5km orders, recompute the flat-rate tier here from the distance the
+  // browser reported, rather than trusting order.needsManualFee/fee directly.
   let deliveryFeeAmount = 0;
-  if (order.needsManualFee) {
+  if (typeof order.distanceKm === "number") {
+    const tier = computeDeliveryFee(order.distanceKm);
+    if (tier.manual) {
+      const feeEntry = order.feeRequestId ? pendingFeeRequests.get(order.feeRequestId) : null;
+      if (!feeEntry || feeEntry.status !== "confirmed") {
+        return res.status(409).json({
+          success: false,
+          error: "FEE_NOT_CONFIRMED",
+          message: "Your delivery fee hasn't been confirmed yet. Please go back and wait for confirmation.",
+        });
+      }
+      deliveryFeeAmount = feeEntry.fee;
+    } else {
+      deliveryFeeAmount = tier.fee;
+    }
+  } else if (order.needsManualFee) {
+    // No distance available (typed address) -- must go through manual confirmation.
     const feeEntry = order.feeRequestId ? pendingFeeRequests.get(order.feeRequestId) : null;
     if (!feeEntry || feeEntry.status !== "confirmed") {
       return res.status(409).json({
@@ -1577,9 +1614,9 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   const addressWithNote = order.addressNote ? `${fullAddress} -- ${order.addressNote}` : fullAddress;
   const timingLine = order.timing === "SCHEDULED" ? `Scheduled: ${order.scheduleText}` : "Right away";
   const deliveryLine =
-    order.needsManualFee === false
+    deliveryFeeAmount === 0 && !order.needsManualFee
       ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
-      : `Delivery fee: ฿${deliveryFeeAmount}${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
+      : `Delivery: ฿${deliveryFeeAmount}${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;

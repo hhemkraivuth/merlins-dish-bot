@@ -1256,20 +1256,58 @@ async function handleAdminCommand(replyToken, text) {
     return true;
   }
   if (lower.startsWith("soldout ")) {
-    const id = text.trim().split(/\s+/)[1];
-    if (!MENU.find((d) => d.id === id)) {
-      await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${id}". Text "stock" to see valid ids.` });
+    // Accepts one or more item ids, comma-separated: "soldout a, b, c"
+    // (spaces around commas are optional). Reports back which ones were
+    // marked and which ids weren't recognised, so a typo in a long list
+    // doesn't get silently skipped.
+    const ids = text
+      .trim()
+      .slice("soldout ".length)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (ids.length === 0) {
+      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "soldout rws_r" or "soldout rws_r, dbs_r".` });
       return true;
     }
-    soldOut.add(id);
-    await client.replyMessage(replyToken, { type: "text", text: `Marked "${id}" as sold out. It's now hidden from customers.` });
+
+    const marked = [];
+    const unknown = [];
+    for (const id of ids) {
+      if (!MENU.find((d) => d.id === id)) {
+        unknown.push(id);
+        continue;
+      }
+      soldOut.add(id);
+      marked.push(id);
+    }
+
+    const lines = [];
+    if (marked.length) lines.push(`Marked sold out (hidden from customers): ${marked.join(", ")}`);
+    if (unknown.length) lines.push(`Unknown item id${unknown.length > 1 ? "s" : ""} (skipped, text "stock" to see valid ids): ${unknown.join(", ")}`);
+    await client.replyMessage(replyToken, { type: "text", text: lines.join("\n") });
     return true;
   }
   if (lower.startsWith("instock ")) {
-    const id = text.trim().split(/\s+/)[1];
-    soldOut.delete(id);
-    stockCount.delete(id);
-    await client.replyMessage(replyToken, { type: "text", text: `"${id}" is back in stock (no limit set).` });
+    // Same comma-separated form as "soldout" above.
+    const ids = text
+      .trim()
+      .slice("instock ".length)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (ids.length === 0) {
+      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "instock rws_r" or "instock rws_r, dbs_r".` });
+      return true;
+    }
+
+    for (const id of ids) {
+      soldOut.delete(id);
+      stockCount.delete(id);
+    }
+    await client.replyMessage(replyToken, { type: "text", text: `Back in stock (no limit set): ${ids.join(", ")}` });
     return true;
   }
   return false;

@@ -32,7 +32,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
 const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
-const { logOrder } = require("./sheetLogger");
+const { logOrder, logMenuTap } = require("./sheetLogger");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -1344,7 +1344,11 @@ async function handleHumanHandoff(userId, replyToken, triggerText) {
   });
 }
 
-async function sendOrderAppLink(userId, replyToken) {
+async function sendOrderAppLink(userId, replyToken, trigger) {
+  // Fire-and-forget: log every menu open so you can see engagement over
+  // time, without ever delaying or breaking the reply to the customer.
+  logMenuTapSafely(userId, trigger || "menu");
+
   const liffId = process.env.LIFF_ID;
   if (!liffId) {
     // LIFF isn't set up yet -- fall back to the old chat ordering flow
@@ -1360,6 +1364,24 @@ async function sendOrderAppLink(userId, replyToken) {
       actions: [{ type: "uri", label: "🥘 Order Now", uri: `https://liff.line.me/${liffId}` }],
     },
   });
+}
+
+// Looks up the customer's display name (best-effort) and appends a row to
+// the "Menu Taps" sheet tab. Never awaited by callers -- a slow or failed
+// lookup/log must never delay the reply to the customer.
+async function logMenuTapSafely(userId, trigger) {
+  let displayName = "";
+  try {
+    const profile = await client.getProfile(userId);
+    displayName = profile.displayName;
+  } catch (e) {
+    /* not friends yet or lookup failed -- log without a name */
+  }
+  try {
+    await logMenuTap({ userId, displayName, trigger });
+  } catch (err) {
+    console.error("logMenuTap failed:", err.message);
+  }
 }
 
 async function handleFollow(userId, replyToken) {
@@ -1816,7 +1838,7 @@ async function handleEvent(event) {
 
     const menuTriggers = ["menu", "order", "เมนู", "สั่งอาหาร"];
     if (menuTriggers.includes(text.toLowerCase())) {
-      return sendOrderAppLink(userId, event.replyToken);
+      return sendOrderAppLink(userId, event.replyToken, text);
     }
 
     switch (session.step) {

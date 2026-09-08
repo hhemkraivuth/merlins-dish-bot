@@ -90,6 +90,42 @@ function resetSession(userId) {
 // on restart -- if that ever matters to you, say so and we'll persist it.
 const soldOut = new Set();
 
+// Manual "close"/"open" override, controlled by you via LINE text commands
+// in your private group (see handleAdminCommand). Resets on restart --
+// if you close and the bot redeploys, it'll come back to normal hours
+// automatically, so remember to re-close if that happens on a day off.
+// null = no override, follow the regular Mon-Fri 11:00-21:00 schedule.
+// true = force open even outside/on a normally-closed day.
+// false = force closed even during normal hours.
+let manualOpenOverride = null;
+
+// Regular hours: Monday-Friday, 11:00-21:00, Bangkok time (UTC+7, no DST).
+// Weekends are closed by default. Change these two numbers if hours shift.
+const OPEN_HOUR = 11;
+const CLOSE_HOUR = 21;
+
+function bangkokNow() {
+  // The server's own clock may be in any timezone (Railway defaults to
+  // UTC) -- always compute "now" as if read from a Bangkok wall clock.
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+}
+
+function isShopOpen() {
+  if (manualOpenOverride !== null) return manualOpenOverride;
+  const now = bangkokNow();
+  const day = now.getDay(); // 0 = Sunday, 6 = Saturday
+  if (day === 0 || day === 6) return false;
+  const hour = now.getHours();
+  return hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+}
+
+function closedMessage() {
+  if (manualOpenOverride === false) {
+    return "Merlin's Dish is closed today. Sorry for the inconvenience, please check back another day! 🙏";
+  }
+  return `Merlin's Dish is open Monday-Friday, 11:00-21:00. We're closed right now, please come back during our hours! 🕐`;
+}
+
 // Pending ">5km" delivery-fee requests from the LIFF app, waiting on you
 // to reply with a number in your private group. Keyed by a short request
 // id; oldest unresolved request is matched to your next numeric reply.
@@ -1229,6 +1265,40 @@ async function finishOrder(userId, replyToken, session) {
 async function handleAdminCommand(replyToken, text) {
   const lower = text.toLowerCase().trim();
 
+  if (lower === "close" || lower === "close today") {
+    manualOpenOverride = false;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Shop marked CLOSED. Customers will see a closed message until you text "open".`,
+    });
+    return true;
+  }
+  if (lower === "open") {
+    manualOpenOverride = null;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Override cleared. Back to your normal Mon-Fri 11:00-21:00 hours.\n(Currently: ${isShopOpen() ? "OPEN" : "CLOSED"})`,
+    });
+    return true;
+  }
+  if (lower === "open now" || lower === "force open") {
+    manualOpenOverride = true;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Shop forced OPEN, even outside normal hours. Text "open" to return to your normal schedule, or "close" to close again.`,
+    });
+    return true;
+  }
+  if (lower === "status" || lower === "hours") {
+    const override =
+      manualOpenOverride === null ? "none (following normal schedule)" : manualOpenOverride ? "forced OPEN" : "forced CLOSED";
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
+    });
+    return true;
+  }
+
   if (lower === "stock") {
     const body = MENU.map((d) => {
       const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
@@ -1387,6 +1457,11 @@ async function sendOrderAppLink(userId, replyToken, trigger) {
   // time, without ever delaying or breaking the reply to the customer.
   logMenuTapSafely(userId, trigger || "menu");
 
+  // Customers can still browse the menu and get to the delivery step
+  // while closed -- the LIFF app itself blocks them at "Continue" on
+  // the delivery screen (see closed-screen in index.html/app.js) and
+  // /api/place-order blocks as a final backstop. So no isShopOpen()
+  // gate here; always show the Order Now card.
   const liffId = process.env.LIFF_ID;
   if (!liffId) {
     // LIFF isn't set up yet -- fall back to the old chat ordering flow
@@ -1465,6 +1540,8 @@ app.get("/api/shop-info", (req, res) => {
     paymentInfo: process.env.BUSINESS_PAYMENT_INFO || "our bank account",
     qrImageUrl: process.env.QR_IMAGE_URL || null,
     liffId: process.env.LIFF_ID || null,
+    isOpen: isShopOpen(),
+    closedMessage: closedMessage(),
   });
 });
 
@@ -1530,6 +1607,10 @@ app.get("/api/delivery-fee/:requestId", (req, res) => {
 });
 
 app.post("/api/place-order", upload.single("slip"), async (req, res) => {
+  if (!isShopOpen()) {
+    return res.status(409).json({ success: false, error: "SHOP_CLOSED", message: closedMessage() });
+  }
+
   let order;
   try {
     order = JSON.parse(req.body.order || "{}");
@@ -1925,6 +2006,10 @@ async function handleEvent(event) {
 
       case "awaiting_address_note":
         session.addressNote = text;
+        if (!isShopOpen()) {
+          await client.replyMessage(event.replyToken, { type: "text", text: closedMessage() });
+          return;
+        }
         return showFinalSummary(userId, event.replyToken);
 
       case "awaiting_name_phone": {

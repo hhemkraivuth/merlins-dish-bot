@@ -90,6 +90,17 @@ function resetSession(userId) {
 // on restart -- if that ever matters to you, say so and we'll persist it.
 const soldOut = new Set();
 
+// Pending ">2km" delivery-fee requests from the LIFF app, waiting on you
+// to reply with a number in your private group. Keyed by a short request
+// id; oldest unresolved request is matched to your next numeric reply.
+// This assumes you're not juggling many >2km orders at the exact same
+// moment -- reasonable for a solo, low-volume kitchen, but worth knowing
+// if that ever changes.
+const pendingFeeRequests = new Map();
+function makeRequestId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
 // Remaining stock per item, controlled by "setstock <id> <n>". If an item
 // has no entry here, it's treated as unlimited. Also resets on restart.
 const stockCount = new Map();
@@ -1246,6 +1257,41 @@ async function handleAdminCommand(replyToken, text) {
   return false;
 }
 
+async function handleFeeReply(replyToken, fee) {
+  // Match to the oldest request still waiting -- see the note by
+  // pendingFeeRequests above about why this is a FIFO match, not
+  // tied to a specific customer by name.
+  let oldestId = null;
+  let oldestTime = Infinity;
+  for (const [id, entry] of pendingFeeRequests.entries()) {
+    if (entry.status === "waiting" && entry.createdAt < oldestTime) {
+      oldestId = id;
+      oldestTime = entry.createdAt;
+    }
+  }
+
+  if (!oldestId) {
+    // No pending request -- this was probably just an unrelated number
+    // typed in the group chat, say nothing so as not to be confusing.
+    return;
+  }
+
+  const entry = pendingFeeRequests.get(oldestId);
+  entry.status = "confirmed";
+  entry.fee = fee;
+
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: `✅ Delivery fee of ฿${fee} confirmed. The customer's app will pick this up automatically.`,
+  });
+
+  // Clean up old entries so this map doesn't grow forever over many days.
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [id, e] of pendingFeeRequests.entries()) {
+    if (e.createdAt < cutoff) pendingFeeRequests.delete(id);
+  }
+}
+
 async function handleHumanHandoff(userId, replyToken, triggerText) {
   const session = getSession(userId);
   session.step = "with_staff";
@@ -1344,6 +1390,66 @@ app.get("/api/shop-info", (req, res) => {
   });
 });
 
+// Called when a LIFF customer is outside the free 2km zone. Pings your
+// private group and hands back a request id the app polls for the fee.
+app.post("/api/request-delivery-fee", express.json(), async (req, res) => {
+  const { lineUserId, items, distanceKm, addressNote } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "EMPTY_CART" });
+  }
+
+  const lines = [];
+  for (const reqItem of items) {
+    const dish = MENU.find((d) => d.id === reqItem.itemId);
+    if (dish) lines.push(`${reqItem.qty}x ${dish.name}`);
+  }
+
+  let displayName = "Customer";
+  if (lineUserId) {
+    try {
+      const profile = await client.getProfile(lineUserId);
+      displayName = profile.displayName;
+    } catch (e) {
+      /* not friends yet or lookup failed -- keep the generic label */
+    }
+  }
+
+  const requestId = makeRequestId();
+  pendingFeeRequests.set(requestId, {
+    status: "waiting",
+    fee: null,
+    createdAt: Date.now(),
+  });
+
+  const target = process.env.LINE_INTERNAL_TARGET_ID;
+  if (target) {
+    try {
+      await client.pushMessage(target, {
+        type: "text",
+        text:
+          `📍 DELIVERY FEE NEEDED\n` +
+          `Customer: ${displayName}\n` +
+          `Order: ${lines.join(", ")}\n` +
+          `Distance: ${distanceKm ? distanceKm.toFixed(1) + "km" : "unknown"}\n` +
+          `${addressNote ? `Notes: ${addressNote}\n` : ""}` +
+          `Reply here with just the fee amount (e.g. 50) to confirm it. ` +
+          `They're waiting in the app for your reply.`,
+      });
+    } catch (err) {
+      console.error("Failed to push delivery-fee request:", err.message);
+    }
+  }
+
+  res.json({ requestId });
+});
+
+// The LIFF app polls this every few seconds while waiting.
+app.get("/api/delivery-fee/:requestId", (req, res) => {
+  const entry = pendingFeeRequests.get(req.params.requestId);
+  if (!entry) return res.status(404).json({ status: "not_found" });
+  res.json({ status: entry.status, fee: entry.fee });
+});
+
 app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   let order;
   try {
@@ -1393,7 +1499,24 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
   }
 
-  const total = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+  const foodTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+
+  // Never trust a fee number from the browser -- look up what was
+  // actually confirmed server-side via the pending request id.
+  let deliveryFeeAmount = 0;
+  if (order.needsManualFee) {
+    const feeEntry = order.feeRequestId ? pendingFeeRequests.get(order.feeRequestId) : null;
+    if (!feeEntry || feeEntry.status !== "confirmed") {
+      return res.status(409).json({
+        success: false,
+        error: "FEE_NOT_CONFIRMED",
+        message: "Your delivery fee hasn't been confirmed yet. Please go back and wait for confirmation.",
+      });
+    }
+    deliveryFeeAmount = feeEntry.fee;
+  }
+
+  const total = foodTotal + deliveryFeeAmount;
 
   let slipResult;
   try {
@@ -1456,7 +1579,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   const deliveryLine =
     order.needsManualFee === false
       ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
-      : `Delivery fee: TO BE CONFIRMED${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
+      : `Delivery fee: ฿${deliveryFeeAmount}${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;
@@ -1466,7 +1589,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         {
           type: "text",
           text:
-            `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${total}\nTiming: ${timingLine}\n${deliveryLine}\n\n` +
+            `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\nTiming: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
             `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
             `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
         },
@@ -1478,10 +1601,6 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     } catch (err) {
       console.error("Failed to push LIFF order to internal target:", err.message);
     }
-  }
-
-  if (order.needsManualFee) {
-    await pingManualFeeNeeded(order.distanceKm || null);
   }
 
   await logOrder({
@@ -1503,6 +1622,10 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     } catch (err) {
       console.error("Failed to push confirmation to customer (order still succeeded):", err.message);
     }
+  }
+
+  if (order.feeRequestId) {
+    pendingFeeRequests.delete(order.feeRequestId);
   }
 
   res.json({
@@ -1614,6 +1737,18 @@ async function handleEvent(event) {
 
   if (event.type === "message" && event.message.type === "text") {
     const text = event.message.text.trim();
+
+    // A bare number typed in your private group is treated as the fee
+    // reply for the oldest still-waiting delivery-fee request -- this
+    // has to be checked before any customer-facing logic below, and
+    // only ever matches messages actually sent in that specific group.
+    if (
+      event.source.type === "group" &&
+      event.source.groupId === process.env.LINE_INTERNAL_TARGET_ID &&
+      /^\d+(\.\d+)?$/.test(text)
+    ) {
+      return handleFeeReply(event.replyToken, parseFloat(text));
+    }
 
     if (process.env.ADMIN_USER_ID && userId === process.env.ADMIN_USER_ID) {
       const handled = await handleAdminCommand(event.replyToken, text);

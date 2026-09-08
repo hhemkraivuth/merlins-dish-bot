@@ -10,7 +10,7 @@
 // created it in the LINE Developers Console (see README).
 // ============================================================
 
-const LIFF_ID = "2011487934-vA458ABe";
+const LIFF_ID = "011487934-vA458ABe";
 
 let MENU = [];
 let CATEGORIES = [];
@@ -26,6 +26,8 @@ let scheduleText = "";
 let deliveryLocation = null; // { lat, lng } or null
 let manualAddress = "";
 let needsManualFee = null; // true/false/null (unknown yet)
+let confirmedDeliveryFee = 0; // set once Merlin's Dish replies with a fee, for a >2km order
+let feeRequestId = null; // sent back with the final order so the server can verify the fee itself
 let distanceKm = null;
 let addressNote = "";
 let paymentMethod = "bank";
@@ -377,7 +379,12 @@ function ensureMapInitialized() {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
-    mapMarker = L.marker(defaultCenter, { draggable: true }).addTo(map);
+    const redPinIcon = L.divIcon({
+      className: "custom-pin-icon",
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+    });
+    mapMarker = L.marker(defaultCenter, { draggable: true, icon: redPinIcon }).addTo(map);
     mapMarker.on("dragend", () => {
       const pos = mapMarker.getLatLng();
       setDeliveryLocation(pos.lat, pos.lng);
@@ -443,6 +450,71 @@ function setDeliveryLocation(lat, lng) {
   }
 }
 
+// ---------- delivery fee confirmation (>2km orders) ----------
+
+let feePollActive = false;
+
+async function requestDeliveryFeeAndWait() {
+  feePollActive = true;
+  showScreen("waiting-fee-screen");
+  document.getElementById("waiting-fee-status").textContent =
+    "Letting Merlin's Dish know about your delivery location...";
+
+  let requestId;
+  try {
+    const res = await fetch("/api/request-delivery-fee", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lineUserId: LINE_USER_ID,
+        items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice })),
+        distanceKm,
+        addressNote,
+      }),
+    });
+    const data = await res.json();
+    requestId = data.requestId;
+    feeRequestId = requestId;
+  } catch (err) {
+    console.error(err);
+    document.getElementById("waiting-fee-status").textContent =
+      "Couldn't reach Merlin's Dish. Please go back and try again.";
+    return;
+  }
+
+  document.getElementById("waiting-fee-status").textContent =
+    "Waiting for Merlin's Dish to confirm your delivery fee, this is usually quick...";
+  pollDeliveryFee(requestId, 0);
+}
+
+function pollDeliveryFee(requestId, attempt) {
+  if (!feePollActive) return; // customer navigated away -- stop polling
+
+  if (attempt === 40) {
+    // ~2 minutes in at 3s each -- reassure, but keep polling.
+    document.getElementById("waiting-fee-status").textContent =
+      "Still waiting, this is taking longer than usual. Feel free to keep waiting, or message us directly on LINE.";
+  }
+
+  fetch(`/api/delivery-fee/${requestId}`)
+    .then((r) => r.json())
+    .then((data) => {
+      if (!feePollActive) return;
+      if (data.status === "confirmed") {
+        feePollActive = false;
+        confirmedDeliveryFee = data.fee;
+        renderReviewScreen();
+        showScreen("review-screen");
+      } else {
+        setTimeout(() => pollDeliveryFee(requestId, attempt + 1), 3000);
+      }
+    })
+    .catch((err) => {
+      console.error(err);
+      setTimeout(() => pollDeliveryFee(requestId, attempt + 1), 5000);
+    });
+}
+
 // ---------- review & pay screen ----------
 
 function renderReviewScreen() {
@@ -450,18 +522,22 @@ function renderReviewScreen() {
   linesWrap.innerHTML = cartLines()
     .map((l) => `<div class="summary-line"><span>${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
     .join("");
-  document.getElementById("review-food-total").textContent = `฿${cartTotal()}`;
+  const foodTotal = cartTotal();
+  const grandTotal = foodTotal + (needsManualFee ? confirmedDeliveryFee : 0);
+  document.getElementById("review-food-total").textContent = `฿${foodTotal}`;
   document.getElementById("review-delivery").textContent =
-    needsManualFee === false ? "FREE (within 2km)" : "To be confirmed";
+    needsManualFee === false ? "FREE (within 2km)" : `฿${confirmedDeliveryFee}`;
   document.getElementById("review-timing").textContent =
     timing === "ASAP" ? "Right away" : `Scheduled: ${scheduleText || "(not set)"}`;
+  document.getElementById("review-grand-total").textContent = `฿${grandTotal}`;
 
   const banner = document.getElementById("manual-fee-banner");
   if (needsManualFee) {
     banner.textContent =
-      `You're paying the food total (฿${cartTotal()}) now. Since you're outside our free 2km zone, ` +
-      `Merlin's Dish will message you here on LINE separately to arrange the delivery fee.`;
-    banner.classList.remove("hidden");
+      `Delivery fee confirmed by Merlin's Dish: ฿${confirmedDeliveryFee}` +
+      `${distanceKm ? ` (${distanceKm.toFixed(1)}km away)` : ""}. One payment covers both.`;
+    banner.classList.remove("hidden", "manual");
+    banner.classList.add("free");
   } else {
     banner.classList.add("hidden");
   }
@@ -505,6 +581,7 @@ async function submitOrder() {
     addressText: manualAddress || null,
     addressNote: document.getElementById("address-note").value.trim(),
     needsManualFee,
+    feeRequestId: needsManualFee ? feeRequestId : null,
     distanceKm,
     name: document.getElementById("name-input").value.trim(),
     phone: document.getElementById("phone-input").value.trim(),
@@ -526,9 +603,7 @@ async function submitOrder() {
     }
 
     document.getElementById("confirm-message").textContent =
-      data.needsManualFee
-        ? "All set! The food will be with you shortly. Merlin's Dish will confirm your delivery fee separately. You can close this window."
-        : "All set! The food will be with you shortly, delivery is free for you. You can close this window.";
+      "All set! The food will be with you shortly. You can close this window.";
     showScreen("confirm-screen");
   } catch (err) {
     console.error(err);
@@ -544,6 +619,9 @@ function resetOrder() {
   deliveryLocation = null;
   manualAddress = "";
   needsManualFee = null;
+  confirmedDeliveryFee = 0;
+  feeRequestId = null;
+  feePollActive = false;
   distanceKm = null;
   slipFile = null;
   document.getElementById("schedule-text").value = "";
@@ -597,15 +675,26 @@ function wireStaticEvents() {
     }
   });
 
-  document.getElementById("to-review-btn").addEventListener("click", () => {
+  document.getElementById("to-review-btn").addEventListener("click", async () => {
     if (!deliveryLocation && manualAddress.trim().length < 5) {
       showToast("Please set your delivery location below first.", true);
       flashInvalid("map");
       return;
     }
     addressNote = document.getElementById("address-note").value.trim();
-    renderReviewScreen();
-    showScreen("review-screen");
+
+    if (needsManualFee) {
+      await requestDeliveryFeeAndWait();
+    } else {
+      confirmedDeliveryFee = 0;
+      renderReviewScreen();
+      showScreen("review-screen");
+    }
+  });
+
+  document.getElementById("waiting-fee-back-btn").addEventListener("click", () => {
+    feePollActive = false;
+    showScreen("delivery-screen");
   });
 
   document.querySelectorAll("[data-pay]").forEach((btn) => {

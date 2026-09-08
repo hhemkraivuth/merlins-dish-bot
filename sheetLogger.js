@@ -69,4 +69,35 @@ async function logOrder(order) {
   }
 }
 
-module.exports = { logOrder };
+// Logs one row every time a customer opens the ordering menu (rich menu tap
+// or typing "menu"/"order"), separate from the order log so it doesn't mix
+// with completed-order rows. Written to its own "Menu Taps" tab -- if that
+// tab doesn't exist yet in your Google Sheet, create it once with headers:
+// Date | Time | LINE User ID | Display Name | Trigger
+async function logMenuTap({ userId, displayName, trigger }) {
+  const client = getClient();
+  if (!client) return; // Sheet logging not configured -- skip silently.
+
+  const now = new Date();
+  const row = [
+    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
+    now.toLocaleTimeString("en-GB"), // Time
+    userId,
+    displayName || "",
+    trigger, // e.g. "menu", "order", or the rich menu label
+  ];
+
+  try {
+    await client.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Menu Taps!A:E",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] },
+    });
+  } catch (err) {
+    // Never let a logging failure break the order flow for the customer.
+    console.error("Sheet logging failed (menu tap still went through):", err.message);
+  }
+}
+
+module.exports = { logOrder, logMenuTap };

@@ -376,6 +376,30 @@ button, input, textarea, select {
   overflow: hidden;
 }
 
+.free-delivery-note {
+  background: var(--cream-deep);
+  border: 1.5px solid var(--gold);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+/* Custom map pin -- drawn with CSS (no external icon image), bigger
+   than Leaflet's default for an easier touch target on mobile. */
+.custom-pin-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--red);
+  border: 4px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}
+.custom-pin-icon:active { cursor: grabbing; }
+
 .location-result {
   margin-top: 10px;
   padding: 10px 12px;
@@ -412,6 +436,16 @@ button, input, textarea, select {
   margin-top: 8px;
   border-top: 1px dashed var(--line);
   font-size: 14px;
+}
+.summary-row.grand-total-row {
+  font-size: 17px;
+  font-weight: 800;
+  border-top: 2px solid var(--ink);
+}
+
+.loading-spin {
+  animation: spin-slow 2.2s linear infinite;
+  display: inline-block;
 }
 
 .pay-info {
@@ -453,10 +487,10 @@ button, input, textarea, select {
 /* ---------- toast ---------- */
 .toast {
   position: fixed;
-  bottom: 24px;
+  top: 20px;
   left: 16px;
   right: 16px;
-  background: var(--ink);
+  background: var(--success);
   color: #fff;
   padding: 13px 16px;
   border-radius: var(--radius-sm);

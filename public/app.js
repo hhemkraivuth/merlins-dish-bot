@@ -25,10 +25,18 @@ let timing = "ASAP";
 let scheduleText = "";
 let deliveryLocation = null; // { lat, lng } or null
 let manualAddress = "";
-let needsManualFee = null; // true/false/null (unknown yet)
-let confirmedDeliveryFee = 0; // set once Merlin's Dish replies with a fee, for a >2km order
+let needsManualFee = null; // true/false/null (unknown yet) -- only true beyond the flat-rate tiers (>5km)
+let confirmedDeliveryFee = 0; // auto-set for 0-5km tiers, or set once Merlin's Dish replies for a >5km order
 let feeRequestId = null; // sent back with the final order so the server can verify the fee itself
 let distanceKm = null;
+
+// ---------- delivery fee tiers ----------
+// 0-2km: free. 2-5km: flat ฿50. >5km: manual confirmation by Merlin's Dish.
+function computeDeliveryFee(km) {
+  if (km <= 2) return { fee: 0, manual: false, label: "FREE (within 2km)" };
+  if (km <= 5) return { fee: 50, manual: false, label: "฿50 (2-5km)" };
+  return { fee: null, manual: true, label: null };
+}
 let addressNote = "";
 let paymentMethod = "bank";
 let slipFile = null;
@@ -454,13 +462,18 @@ function setDeliveryLocation(lat, lng) {
   resultEl.classList.remove("hidden", "free", "manual");
   if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null) {
     distanceKm = distanceKmBetween(SHOP_INFO.shopLat, SHOP_INFO.shopLng, lat, lng);
-    needsManualFee = distanceKm > 2;
-    if (needsManualFee) {
-      resultEl.textContent = `${distanceKm.toFixed(1)}km away, outside our free 2km zone. Merlin's Dish will confirm the delivery fee shortly.`;
+    const tier = computeDeliveryFee(distanceKm);
+    needsManualFee = tier.manual;
+    if (tier.manual) {
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, outside our 5km delivery zone. Merlin's Dish will confirm the delivery fee shortly.`;
       resultEl.classList.add("manual");
     } else {
-      resultEl.textContent = `${distanceKm.toFixed(1)}km away, free delivery! 🎉`;
-      resultEl.classList.add("free");
+      confirmedDeliveryFee = tier.fee;
+      resultEl.textContent =
+        tier.fee === 0
+          ? `${distanceKm.toFixed(1)}km away, free delivery! 🎉`
+          : `${distanceKm.toFixed(1)}km away, delivery fee ฿${tier.fee}.`;
+      resultEl.classList.add(tier.fee === 0 ? "free" : "flat-fee");
     }
   } else {
     needsManualFee = true;
@@ -469,7 +482,7 @@ function setDeliveryLocation(lat, lng) {
   }
 }
 
-// ---------- delivery fee confirmation (>2km orders) ----------
+// ---------- delivery fee confirmation (>5km orders) ----------
 
 let feePollActive = false;
 
@@ -542,10 +555,10 @@ function renderReviewScreen() {
     .map((l) => `<div class="summary-line"><span>${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
     .join("");
   const foodTotal = cartTotal();
-  const grandTotal = foodTotal + (needsManualFee ? confirmedDeliveryFee : 0);
+  const grandTotal = foodTotal + confirmedDeliveryFee;
   document.getElementById("review-food-total").textContent = `฿${foodTotal}`;
   document.getElementById("review-delivery").textContent =
-    needsManualFee === false ? "FREE (within 2km)" : `฿${confirmedDeliveryFee}`;
+    confirmedDeliveryFee === 0 ? "FREE (within 2km)" : `฿${confirmedDeliveryFee}`;
   document.getElementById("review-timing").textContent =
     timing === "ASAP" ? "Right away" : `Scheduled: ${scheduleText || "(not set)"}`;
   document.getElementById("review-grand-total").textContent = `฿${grandTotal}`;
@@ -694,7 +707,8 @@ function wireStaticEvents() {
     if (needsManualFee) {
       await requestDeliveryFeeAndWait();
     } else {
-      confirmedDeliveryFee = 0;
+      // confirmedDeliveryFee was already set by computeDeliveryFee() in setDeliveryLocation()
+      // (0 for <=2km, 50 for 2-5km); typed manual addresses without a pin fall through to manual.
       renderReviewScreen();
       showScreen("review-screen");
     }

@@ -1546,6 +1546,9 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   if (!order.name || !order.phone) {
     return res.status(400).json({ success: false, error: "MISSING_INFO", message: "Name and phone are required." });
   }
+  if (!order.addressNote || !order.addressNote.trim()) {
+    return res.status(400).json({ success: false, error: "MISSING_INFO", message: "Please add a note for the rider (unit number or where to deliver)." });
+  }
 
   // Recompute everything server-side from menu.js -- never trust prices
   // or availability sent by the browser.

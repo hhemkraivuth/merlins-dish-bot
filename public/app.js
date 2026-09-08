@@ -10,7 +10,7 @@
 // created it in the LINE Developers Console (see README).
 // ============================================================
 
-const LIFF_ID = "011487934-vA458ABe";
+const LIFF_ID = "2011487934-vA458ABe";
 
 let MENU = [];
 let CATEGORIES = [];
@@ -276,6 +276,7 @@ function buildItemCard(dish) {
       }
       addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
       qtyEl.textContent = cart[dish.id].qty;
+      showToast(`Added 1x ${dish.name}`);
     });
   }
 
@@ -326,13 +327,31 @@ function renderCartScreen() {
       row.className = "cart-line";
       row.innerHTML = `
         <div class="cart-line-info">
-          <div class="name">${l.qty}x ${l.name}</div>
+          <div class="name">${l.name}</div>
           <div class="price">฿${l.price * l.qty}</div>
         </div>
-        <button type="button" class="remove-line-btn" data-line="${l.lineId}">🗑</button>
+        <div class="stepper cart-line-stepper">
+          <button type="button" class="minus">−</button>
+          <span class="qty">${l.qty}</span>
+          <button type="button" class="plus">+</button>
+        </div>
       `;
-      row.querySelector(".remove-line-btn").addEventListener("click", () => {
-        delete cart[l.lineId];
+      const qtyEl = row.querySelector(".qty");
+      row.querySelector(".minus").addEventListener("click", () => {
+        cart[l.lineId].qty -= 1;
+        if (cart[l.lineId].qty <= 0) delete cart[l.lineId];
+        renderCartScreen();
+        renderItemList();
+        updateCartBar();
+      });
+      row.querySelector(".plus").addEventListener("click", () => {
+        const dish = MENU.find((d) => d.id === l.itemId);
+        const max = dish && dish.remaining != null ? dish.remaining : Infinity;
+        if (l.qty >= max) {
+          showToast(`Only ${max} of "${l.name}" left`, true);
+          return;
+        }
+        cart[l.lineId].qty += 1;
         renderCartScreen();
         renderItemList();
         updateCartBar();
@@ -530,17 +549,6 @@ function renderReviewScreen() {
   document.getElementById("review-timing").textContent =
     timing === "ASAP" ? "Right away" : `Scheduled: ${scheduleText || "(not set)"}`;
   document.getElementById("review-grand-total").textContent = `฿${grandTotal}`;
-
-  const banner = document.getElementById("manual-fee-banner");
-  if (needsManualFee) {
-    banner.textContent =
-      `Delivery fee confirmed by Merlin's Dish: ฿${confirmedDeliveryFee}` +
-      `${distanceKm ? ` (${distanceKm.toFixed(1)}km away)` : ""}. One payment covers both.`;
-    banner.classList.remove("hidden", "manual");
-    banner.classList.add("free");
-  } else {
-    banner.classList.add("hidden");
-  }
 
   document.getElementById("pay-bank-info").textContent =
     `Transfer to ${SHOP_INFO.paymentInfo || "our bank account"}`;

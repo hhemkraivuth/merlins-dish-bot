@@ -1,8 +1,9 @@
 // ============================================================
-// OPTIONAL: logs each completed order as a new row in your
-// Google Sheet's "Master Log" tab. If you haven't set up the
-// GOOGLE_* variables in .env, this quietly does nothing --
-// the bot still works, you just log orders manually as before.
+// Logs bot activity (completed orders, menu opens) to the
+// "Bot Activity" Google Sheet -- a separate file from Lily's
+// recipe-costs Living Document, so this never touches her cost
+// calculations. If GOOGLE_* variables aren't set, this quietly
+// does nothing and the bot still works as normal.
 // ============================================================
 
 const { google } = require("googleapis");
@@ -31,6 +32,13 @@ function getClient() {
 }
 
 // order = { name, address, phone, items: [{name, qty, price}], total, slipRef, slipUrl }
+//
+// Logs to the "Orders" tab of the Bot Activity sheet (the same file as
+// Menu Taps) -- NOT the recipe-costs Living Document. Kept separate per
+// Lily's request so this never touches her cost calculations/formulas.
+// If the "Orders" tab doesn't exist yet, create it once with headers:
+// Date | Time | Items | Order From | Type | Qty (Portions) | Total (THB) |
+// Customer Name | Address | Phone | Slip Ref | Slip URL
 async function logOrder(order) {
   const client = getClient();
   if (!client) return; // Sheet logging not configured -- skip silently.
@@ -39,27 +47,26 @@ async function logOrder(order) {
     .map((i) => `${i.qty}x ${i.name}`)
     .join(", ");
 
+  const now = new Date();
   const row = [
-    new Date().toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
-    itemsText, // Description
-    "", // Branch (left blank -- fill in if you use this column)
-    "LINE Bot", // Order from
-    "Order", // Type
-    order.items.reduce((sum, i) => sum + i.qty, 0), // QTY (Portion)
-    order.total, // Money In
-    "", // Cost (filled in manually per your existing process)
-    "", // Net Profit
+    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
+    now.toLocaleTimeString("en-GB"), // Time
+    itemsText,
+    "LINE Bot",
+    "Order",
+    order.items.reduce((sum, i) => sum + i.qty, 0), // Qty (Portions)
+    order.total, // Total (THB)
     order.name,
     order.address,
     order.phone,
     order.slipRef || "",
-    order.slipUrl || "", // Link to the saved slip photo, for accounting
+    order.slipUrl || "", // Link to the saved slip photo, for reference
   ];
 
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Master Log!A:N",
+      range: "Orders!A:L",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [row] },
     });

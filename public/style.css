@@ -410,6 +410,7 @@ button, input, textarea, select {
   font-weight: 700;
 }
 .location-result.free { border-color: var(--success); color: var(--success); }
+.location-result.flat-fee { border-color: var(--success); color: var(--success); }
 .location-result.manual { border-color: var(--gold); color: #8a6314; }
 
 .manual-address-toggle { margin-top: 10px; font-size: 13px; }

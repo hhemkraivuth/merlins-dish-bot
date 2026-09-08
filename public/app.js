@@ -703,6 +703,11 @@ function wireStaticEvents() {
       return;
     }
     addressNote = document.getElementById("address-note").value.trim();
+    if (!addressNote) {
+      showToast("Please add a note for the rider (unit number or where to deliver).", true);
+      flashInvalid("address-note");
+      return;
+    }
 
     if (needsManualFee) {
       await requestDeliveryFeeAndWait();

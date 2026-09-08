@@ -79,7 +79,8 @@
 
     <section class="field-group">
       <label>Delivery location</label>
-      <p class="hint">Drag the pin to the exact delivery spot -- it doesn't have to be where you are right now.</p>
+      <p class="free-delivery-note">🎉 Free delivery within 2km from Asok area</p>
+      <p class="hint">Touch and hold the pin, then drag it to where you want the delivery -- it doesn't have to be where you are right now.</p>
       <div id="map" class="map-container"></div>
       <button type="button" id="use-my-location-btn" class="btn btn-secondary btn-block">📍 Use my current location</button>
       <div id="location-result" class="location-result hidden"></div>
@@ -98,6 +99,16 @@
   </main>
 </div>
 
+<!-- ===================== WAITING FOR DELIVERY FEE SCREEN ===================== -->
+<div id="waiting-fee-screen" class="screen">
+  <main class="confirm-wrap">
+    <div class="confirm-badge loading-spin">📍</div>
+    <h2>One moment</h2>
+    <p id="waiting-fee-status">Letting Merlin's Dish know about your delivery location...</p>
+    <button id="waiting-fee-back-btn" class="btn btn-secondary">Go back and edit</button>
+  </main>
+</div>
+
 <!-- ===================== REVIEW & PAY SCREEN ===================== -->
 <div id="review-screen" class="screen">
   <header class="subbar">
@@ -111,6 +122,7 @@
       <div class="summary-row"><span>Food total</span><strong id="review-food-total">฿0</strong></div>
       <div class="summary-row"><span>Delivery</span><strong id="review-delivery">--</strong></div>
       <div class="summary-row" id="review-timing-row"><span>Timing</span><strong id="review-timing">--</strong></div>
+      <div class="summary-row grand-total-row"><span>Total to pay</span><strong id="review-grand-total">฿0</strong></div>
     </section>
 
     <div id="manual-fee-banner" class="location-result manual hidden"></div>

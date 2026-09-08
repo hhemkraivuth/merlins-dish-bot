@@ -1273,19 +1273,19 @@ async function handleAdminCommand(replyToken, text) {
     });
     return true;
   }
-  if (lower === "open") {
-    manualOpenOverride = null;
-    await client.replyMessage(replyToken, {
-      type: "text",
-      text: `Override cleared. Back to your normal Mon-Fri 11:00-21:00 hours.\n(Currently: ${isShopOpen() ? "OPEN" : "CLOSED"})`,
-    });
-    return true;
-  }
-  if (lower === "open now" || lower === "force open") {
+  if (lower === "open" || lower === "open today" || lower === "open now") {
     manualOpenOverride = true;
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Shop forced OPEN, even outside normal hours. Text "open" to return to your normal schedule, or "close" to close again.`,
+      text: `Shop marked OPEN, even outside your normal Mon-Fri 11:00-21:00 hours. Text "close" when you're done for the day, or "normal hours" to go back to following your regular schedule automatically.`,
+    });
+    return true;
+  }
+  if (lower === "normal hours" || lower === "reset hours" || lower === "auto hours") {
+    manualOpenOverride = null;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Back to following your normal Mon-Fri 11:00-21:00 hours automatically.\n(Currently: ${isShopOpen() ? "OPEN" : "CLOSED"})`,
     });
     return true;
   }

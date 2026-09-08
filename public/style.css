@@ -342,6 +342,9 @@ button, input, textarea, select {
   font-size: 14px;
   margin-bottom: 8px;
 }
+.required-mark {
+  color: var(--danger, #d84f4f);
+}
 .text-input, textarea.text-input {
   width: 100%;
   padding: 12px 14px;

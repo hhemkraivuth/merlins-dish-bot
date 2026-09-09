@@ -48,7 +48,6 @@ const TIER_HIGH = 10;
 let loyaltyState = null; // last /api/customer-lookup response, or null before first lookup
 let redeemChosen = false; // customer ticked the reward checkbox
 let redeemTier = null; // 5 | 10 -- which tier is being redeemed, when eligible for both
-let lookupDebounceTimer = null;
 let lastLookedUpPhone = "";
 
 // ---------- screen navigation ----------
@@ -329,9 +328,11 @@ function digitsOnly(str) {
   return (str || "").replace(/\D/g, "");
 }
 
-function scheduleCustomerLookup() {
-  clearTimeout(lookupDebounceTimer);
-  lookupDebounceTimer = setTimeout(runCustomerLookup, 500);
+function updateCheckRewardEnabled() {
+  const name = document.getElementById("cart-name-input").value.trim();
+  const phone = document.getElementById("cart-phone-input").value.trim();
+  const ok = name.length >= 2 && digitsOnly(phone).length >= 8;
+  document.getElementById("check-reward-btn").disabled = !ok;
 }
 
 async function runCustomerLookup() {
@@ -342,8 +343,12 @@ async function runCustomerLookup() {
     renderRewardBanner();
     return;
   }
-  if (phone === lastLookedUpPhone) return;
   lastLookedUpPhone = phone;
+
+  const btn = document.getElementById("check-reward-btn");
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Checking...";
 
   try {
     const res = await fetch(`/api/customer-lookup?phone=${encodeURIComponent(phone)}`);
@@ -352,6 +357,8 @@ async function runCustomerLookup() {
     console.error("Customer lookup failed:", err);
     loyaltyState = null;
   }
+  btn.textContent = originalLabel;
+  updateCheckRewardEnabled();
   // Default which tier to offer: prefer the lower one if both are somehow
   // open (shouldn't happen once redeemed, but keeps this defensive).
   if (loyaltyState) {
@@ -824,6 +831,8 @@ function resetOrder() {
   lastLookedUpPhone = "";
   document.getElementById("redeem-reward-checkbox").checked = false;
   document.getElementById("reward-banner").classList.add("hidden");
+  document.getElementById("check-reward-btn").disabled = true;
+  document.getElementById("check-reward-btn").textContent = "Check your reward";
   updateCartBar();
   renderItemList();
   showScreen("menu-screen");
@@ -846,11 +855,15 @@ function wireStaticEvents() {
     ensureMapInitialized();
   });
 
-  document.getElementById("cart-name-input").addEventListener("input", updateCheckoutEnabled);
+  document.getElementById("cart-name-input").addEventListener("input", () => {
+    updateCheckoutEnabled();
+    updateCheckRewardEnabled();
+  });
   document.getElementById("cart-phone-input").addEventListener("input", () => {
     updateCheckoutEnabled();
-    scheduleCustomerLookup();
+    updateCheckRewardEnabled();
   });
+  document.getElementById("check-reward-btn").addEventListener("click", runCustomerLookup);
 
   document.getElementById("redeem-reward-checkbox").addEventListener("change", (e) => {
     redeemChosen = e.target.checked;

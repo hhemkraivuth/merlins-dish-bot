@@ -55,7 +55,6 @@ const MENU = [
   // -- Soup --
   { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/cs.png" },
   { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bs.png" },
-  { id: "mushroom_soup", name: "Mushroom Soup", price: 1, category: "soup", image: null },
 
   // -- Extras: pasta sold on its own, browsable any time (not tied to
   //    ordering a stew first). Prices come from PASTA_OPTIONS.extraPrice

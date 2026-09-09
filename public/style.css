@@ -356,6 +356,34 @@ button, input, textarea, select {
 .hidden { display: none !important; }
 .hint { font-size: 12px; color: var(--ink-soft); margin: 8px 2px 0; }
 
+#cart-screen .field-group {
+  padding: 0 16px;
+  margin-top: 16px;
+}
+
+.reward-banner {
+  margin: 16px 16px 0;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: #FFF6E0;
+  border: 1.5px solid #F0C86B;
+}
+.reward-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+}
+.reward-toggle-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+#redeem-pasta-options { margin-top: 12px; }
+#redeem-pasta-hint { margin-top: 10px; }
+
 .pill-toggle { display: flex; gap: 8px; }
 .pill {
   flex: 1;

@@ -45,9 +45,12 @@ let slipFile = null;
 // ---------- loyalty / reward ladder ----------
 const TIER_LOW = 5;
 const TIER_HIGH = 10;
+const REWARD_LINE_ID = "__reward__"; // reserved cart key, never a real menu id
 let loyaltyState = null; // last /api/customer-lookup response, or null before first lookup
 let redeemChosen = false; // customer ticked the reward checkbox
 let redeemTier = null; // 5 | 10 -- which tier is being redeemed, when eligible for both
+let selectedRewardDishId = null; // tier 10 only -- which dish from the dropdown
+let selectedRewardPastaId = "rigatoni"; // only relevant if that dish requiresPasta
 let lastLookedUpPhone = "";
 
 // ---------- screen navigation ----------
@@ -372,7 +375,7 @@ async function runCustomerLookup() {
 // Merlin doesn't do fluff or sweet talk, just a straight, warm nudge.
 function progressCopy(state) {
   if (!state || !state.found) {
-    return "Every order counts toward a reward. Merlin remembers.";
+    return "You're new here. Don't worry, your rewards start counting now.";
   }
   if (state.canRedeemHigh) {
     return "Order ten. This one's on Merlin's.";
@@ -406,17 +409,14 @@ function renderRewardBanner() {
   if (!canRedeemSomething) {
     checkbox.checked = false;
     redeemChosen = false;
+    removeRewardLine();
     renderRedeemOptions();
     return;
   }
 
   const cfg = loyaltyState.rewardConfig || {};
-  const tierCfg = redeemTier === TIER_LOW ? cfg.low : cfg.high;
-  const itemLabel = tierCfg
-    ? tierCfg.menuItemId
-      ? tierCfg.itemName
-      : `any dish up to ฿${tierCfg.maxValue}`
-    : "your reward";
+  const itemLabel =
+    redeemTier === TIER_LOW ? cfg.low.itemName : "pick your dish below";
 
   // Both tiers open at once only happens if canRedeemLow and canRedeemHigh
   // were both true, which the backend never actually returns together --
@@ -427,24 +427,125 @@ function renderRewardBanner() {
 }
 
 function renderRedeemOptions() {
-  const optionsWrap = document.getElementById("redeem-pasta-options");
-  const hint = document.getElementById("redeem-pasta-hint");
+  const select = document.getElementById("redeem-dish-select");
+  const pastaSelect = document.getElementById("redeem-pasta-select");
+  const surchargeNote = document.getElementById("redeem-surcharge-note");
   const cfg = loyaltyState && loyaltyState.rewardConfig;
-  const tierCfg = cfg && (redeemTier === TIER_LOW ? cfg.low : cfg.high);
 
-  // Only show the hint text -- there's no dish picker here anymore, since
-  // the reward item is whatever's configured in the sheet, not a fixed
-  // choice between two dishes. The hint just tells them what to add.
-  optionsWrap.classList.add("hidden");
-  if (!redeemChosen || !tierCfg) {
-    hint.classList.add("hidden");
+  if (!redeemChosen || !cfg || redeemTier !== TIER_HIGH) {
+    select.classList.add("hidden");
+    pastaSelect.classList.add("hidden");
+    surchargeNote.classList.add("hidden");
+    syncRewardLine();
     return;
   }
-  hint.classList.remove("hidden");
-  hint.textContent = tierCfg.menuItemId
-    ? `Add ${tierCfg.itemName} to your cart -- any add-on surcharges (like noodle upgrades) still apply.`
-    : `Add any dish priced ฿${tierCfg.maxValue} or under to your cart to use this.`;
+
+  // Tier 10: show the dropdown of eligible dishes.
+  select.classList.remove("hidden");
+  select.innerHTML = cfg.high.dishChoices
+    .map((d) => `<option value="${d.id}">${d.name}</option>`)
+    .join("");
+  if (!selectedRewardDishId || !cfg.high.dishChoices.some((d) => d.id === selectedRewardDishId)) {
+    selectedRewardDishId = cfg.high.dishChoices[0] ? cfg.high.dishChoices[0].id : null;
+  }
+  select.value = selectedRewardDishId || "";
+
+  // If the chosen dish requires a noodle pick (e.g. Bolognese), show the
+  // pasta selector too, so premium noodle surcharges still apply even on
+  // a free reward -- only the base dish is free, not an upgraded noodle.
+  const chosenDish = MENU.find((d) => d.id === selectedRewardDishId);
+  if (chosenDish && chosenDish.requiresPasta) {
+    pastaSelect.classList.remove("hidden");
+    pastaSelect.innerHTML = PASTA_OPTIONS.map(
+      (p) => `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
+    ).join("");
+    if (!PASTA_OPTIONS.some((p) => p.id === selectedRewardPastaId)) {
+      selectedRewardPastaId = PASTA_OPTIONS[0].id;
+    }
+    pastaSelect.value = selectedRewardPastaId;
+    const chosenPasta = PASTA_OPTIONS.find((p) => p.id === selectedRewardPastaId);
+    if (chosenPasta && chosenPasta.mandatorySurcharge) {
+      surchargeNote.classList.remove("hidden");
+      surchargeNote.textContent = `+฿${chosenPasta.mandatorySurcharge} noodle upgrade still applies on the free dish.`;
+    } else {
+      surchargeNote.classList.add("hidden");
+    }
+  } else {
+    pastaSelect.classList.add("hidden");
+    surchargeNote.classList.add("hidden");
+  }
+
+  syncRewardLine();
 }
+
+// Adds or removes the synthetic ฿0 reward line in the cart to match the
+// current checkbox/dropdown state. This is the ONLY place that writes to
+// cart[REWARD_LINE_ID], so the cart always reflects exactly what's chosen.
+function syncRewardLine() {
+  if (!redeemChosen || !redeemTier || !loyaltyState || !loyaltyState.rewardConfig) {
+    removeRewardLine();
+    updateCartBar();
+    renderCartScreen();
+    renderReviewLinesIfVisible();
+    return;
+  }
+
+  const cfg = loyaltyState.rewardConfig;
+  let dishId = null;
+  if (redeemTier === TIER_LOW) {
+    dishId = cfg.low.menuItemId;
+  } else {
+    dishId = selectedRewardDishId;
+  }
+  const dish = MENU.find((d) => d.id === dishId);
+  if (!dish) {
+    removeRewardLine();
+    updateCartBar();
+    renderCartScreen();
+    return;
+  }
+
+  // Base dish is free; a premium noodle upgrade (Tubetti/Radiatori) still
+  // carries its usual small surcharge even on a redeemed reward.
+  let surcharge = 0;
+  let pastaChoice = null;
+  let displayName = dish.name;
+  if (dish.requiresPasta) {
+    pastaChoice = selectedRewardPastaId;
+    const pasta = PASTA_OPTIONS.find((p) => p.id === pastaChoice);
+    if (pasta) {
+      surcharge = pasta.mandatorySurcharge || 0;
+      displayName = `${dish.name} (${pasta.name})`;
+    }
+  }
+
+  cart[REWARD_LINE_ID] = {
+    itemId: dish.id,
+    name: `${displayName} (reward, free)`,
+    price: surcharge,
+    qty: 1,
+    pastaChoice: pastaChoice,
+    isRewardLine: true,
+  };
+  updateCartBar();
+  renderCartScreen();
+  renderReviewLinesIfVisible();
+}
+
+function removeRewardLine() {
+  delete cart[REWARD_LINE_ID];
+}
+
+// If the review screen happens to already be rendered (shouldn't usually
+// change while on the cart screen, but the dropdown can be touched after
+// coming back via the back button), keep it in sync too.
+function renderReviewLinesIfVisible() {
+  const reviewScreen = document.getElementById("review-screen");
+  if (reviewScreen && reviewScreen.classList.contains("active")) {
+    renderReviewScreen();
+  }
+}
+
 
 function updateCartBar() {
   const bar = document.getElementById("cart-bar");
@@ -471,6 +572,16 @@ function renderCartScreen() {
     lines.forEach((l) => {
       const row = document.createElement("div");
       row.className = "cart-line";
+      if (l.isRewardLine) {
+        row.innerHTML = `
+          <div class="cart-line-info">
+            <div class="name">🎉 ${l.name}</div>
+            <div class="price">฿0</div>
+          </div>
+        `;
+        wrap.appendChild(row);
+        return;
+      }
       row.innerHTML = `
         <div class="cart-line-info">
           <div class="name">${l.name}</div>
@@ -698,14 +809,8 @@ function pollDeliveryFee(requestId, attempt) {
 function renderReviewScreen() {
   const linesWrap = document.getElementById("review-lines");
   linesWrap.innerHTML = cartLines()
-    .map((l) => `<div class="summary-line"><span>${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
+    .map((l) => `<div class="summary-line"><span>${l.isRewardLine ? "🎉 " : ""}${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
     .join("");
-  if (isRedeemingReward()) {
-    const cfg = loyaltyState.rewardConfig;
-    const tierCfg = redeemTier === TIER_LOW ? cfg.low : cfg.high;
-    const label = tierCfg.menuItemId ? tierCfg.itemName : `any dish up to ฿${tierCfg.maxValue}`;
-    linesWrap.innerHTML += `<div class="summary-line"><span>🎉 Reward redeemed (${label})</span><span>Applied at checkout</span></div>`;
-  }
   const foodTotal = cartTotal();
   const grandTotal = foodTotal + confirmedDeliveryFee;
   document.getElementById("review-food-total").textContent = `฿${foodTotal}`;
@@ -725,23 +830,12 @@ function renderReviewScreen() {
   updatePlaceOrderEnabled();
 }
 
-// True only if the customer ticked the reward checkbox AND is actually
-// eligible AND has a qualifying dish in their cart -- the server
-// re-validates this again regardless, this is just for the review screen.
+// True if the reward line is actually sitting in the cart right now.
+// It only ever gets added by syncRewardLine() when eligible, so its
+// mere presence is sufficient here -- the server re-validates
+// eligibility independently regardless.
 function isRedeemingReward() {
-  if (!redeemChosen || !loyaltyState || !redeemTier) return false;
-  const eligible = redeemTier === TIER_LOW ? loyaltyState.canRedeemLow : loyaltyState.canRedeemHigh;
-  if (!eligible) return false;
-  const cfg = loyaltyState.rewardConfig;
-  const tierCfg = redeemTier === TIER_LOW ? cfg.low : cfg.high;
-  if (!tierCfg) return false;
-  if (tierCfg.menuItemId) {
-    return cartLines().some((l) => l.itemId === tierCfg.menuItemId);
-  }
-  return cartLines().some((l) => {
-    const dish = MENU.find((d) => d.id === l.itemId);
-    return dish && dish.price <= tierCfg.maxValue;
-  });
+  return !!cart[REWARD_LINE_ID];
 }
 
 function applyPaymentMethodUI() {
@@ -766,7 +860,7 @@ async function submitOrder() {
 
   const order = {
     lineUserId: LINE_USER_ID,
-    items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice })),
+    items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice, isRewardLine: !!l.isRewardLine })),
     timing,
     scheduleText,
     location: deliveryLocation,
@@ -828,6 +922,8 @@ function resetOrder() {
   loyaltyState = null;
   redeemChosen = false;
   redeemTier = null;
+  selectedRewardDishId = null;
+  selectedRewardPastaId = "rigatoni";
   lastLookedUpPhone = "";
   document.getElementById("redeem-reward-checkbox").checked = false;
   document.getElementById("reward-banner").classList.add("hidden");
@@ -867,6 +963,14 @@ function wireStaticEvents() {
 
   document.getElementById("redeem-reward-checkbox").addEventListener("change", (e) => {
     redeemChosen = e.target.checked;
+    renderRedeemOptions();
+  });
+  document.getElementById("redeem-dish-select").addEventListener("change", (e) => {
+    selectedRewardDishId = e.target.value;
+    renderRedeemOptions();
+  });
+  document.getElementById("redeem-pasta-select").addEventListener("change", (e) => {
+    selectedRewardPastaId = e.target.value;
     renderRedeemOptions();
   });
 

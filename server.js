@@ -1633,10 +1633,7 @@ app.get("/api/delivery-fee/:requestId", (req, res) => {
 // before any discount is actually applied.
 app.get("/api/customer-lookup", async (req, res) => {
   const phone = normalisePhone(req.query.phone || "");
-  const rewardConfig = await getRewardConfig();
-  if (!phone) {
-    return res.json({ found: false, orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
-  }
+  const rewardConfig = await getRewardConfig(MENU);
   const customer = await getCustomer(phone);
   if (!customer) {
     return res.json({ found: false, orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
@@ -1678,26 +1675,34 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     return res.status(400).json({ success: false, error: "MISSING_INFO", message: "Please add a note for the rider (unit number or where to deliver)." });
   }
 
-  // Reward redemption: re-check eligibility server-side, never trust a
-  // flag from the browser. Max 1 redemption per checkout. What each tier
-  // actually rewards comes from the Reward Config sheet, not hardcoded,
-  // so Lily can change it any time without touching this file.
+  // Reward redemption: the reward line is now explicit -- the customer's
+  // cart contains a specific line marked isRewardLine:true (added when
+  // they ticked the checkbox and, for tier 10, picked a dish from the
+  // dropdown). Never trust the price or the "it's free" claim from the
+  // browser -- re-validate eligibility and that the claimed dish is
+  // actually allowed for that tier before zeroing anything.
   let redeemTier = null; // 5 | 10 | null
   let redeemApplied = false;
-  const rewardConfig = await getRewardConfig();
-  if (order.redeemTier === TIER_LOW || order.redeemTier === TIER_HIGH) {
+  const rewardConfig = await getRewardConfig(MENU);
+  const rewardLineReq = order.items.find((i) => i.isRewardLine);
+  if (rewardLineReq && (order.redeemTier === TIER_LOW || order.redeemTier === TIER_HIGH)) {
     const requestedPhone = normalisePhone(order.phone);
     const customer = requestedPhone ? await getCustomer(requestedPhone) : null;
     const eligible =
       customer &&
       ((order.redeemTier === TIER_LOW && customer.canRedeemLow) ||
         (order.redeemTier === TIER_HIGH && customer.canRedeemHigh));
-    if (eligible) redeemTier = order.redeemTier;
-    // If eligibility fails (e.g. they lied, or someone else redeemed it
-    // for this phone in the meantime), we simply don't apply it -- order
-    // still goes through at full price rather than failing the checkout.
+    const allowedIds =
+      order.redeemTier === TIER_LOW
+        ? [rewardConfig.low.menuItemId]
+        : rewardConfig.high.dishChoices.map((d) => d.id);
+    const dishAllowed = allowedIds.includes(rewardLineReq.itemId);
+    if (eligible && dishAllowed) redeemTier = order.redeemTier;
+    // If eligibility fails (e.g. they lied, someone else redeemed it for
+    // this phone in the meantime, or they picked a dish not on the tier's
+    // list), we simply don't waive the price -- order still goes through
+    // at full price for that line rather than failing the checkout.
   }
-  const activeReward = redeemTier === TIER_LOW ? rewardConfig.low : redeemTier === TIER_HIGH ? rewardConfig.high : null;
 
   // Recompute everything server-side from menu.js -- never trust prices
   // or availability sent by the browser.
@@ -1728,51 +1733,21 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
       }
     }
 
-    // Does this line qualify for the active reward? A fixed-dish reward
-    // (menuItemId set) matches only that exact dish. A value-cap reward
-    // (maxValue set) matches the first line at or under that base price
-    // -- reqItem.redeemThis lets the customer point at a specific line
-    // when more than one dish would qualify.
-    let isRedemption = false;
-    if (activeReward && !redeemApplied) {
-      const fixedMatch = activeReward.menuItemId && dish.id === activeReward.menuItemId;
-      const valueMatch =
-        !activeReward.menuItemId &&
-        activeReward.maxValue != null &&
-        dish.price <= activeReward.maxValue &&
-        (reqItem.redeemThis || order.items.filter((i) => {
-          const d = MENU.find((m) => m.id === i.itemId);
-          return d && d.price <= activeReward.maxValue;
-        }).length === 1);
-      if (fixedMatch || valueMatch) {
-        // Zero out only the base dish price for ONE portion. Any noodle
-        // surcharge (already folded into `price` above) still applies.
-        // If qty > 1, only the first portion's base price is free.
-        const surcharge = price - dish.price;
-        if (reqItem.qty > 1) {
-          lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
-          lines.push({ itemId: dish.id, name, price, qty: reqItem.qty - 1, pastaChoice: reqItem.pastaChoice || null });
-        } else {
-          lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
-        }
-        redeemApplied = true;
-        isRedemption = true;
-      }
-    }
-    if (!isRedemption) {
+    if (reqItem.isRewardLine && redeemTier && !redeemApplied) {
+      // Zero out only the base dish price. Any noodle surcharge (already
+      // folded into `price` above) still applies. Reward lines are
+      // always qty 1 -- ignore anything else the client might send here.
+      const surcharge = price - dish.price;
+      lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+      redeemApplied = true;
+    } else if (reqItem.isRewardLine && !redeemApplied) {
+      // Reward line was requested but didn't validate (see eligibility
+      // check above) -- charge it at full price rather than silently
+      // dropping the item from the order.
+      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
+    } else {
       lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
     }
-  }
-
-  // If a redemption was requested but nothing in the cart actually
-  // qualified, don't silently charge full price without saying why.
-  if (activeReward && !redeemApplied) {
-    const label = activeReward.menuItemId ? activeReward.itemName : `a dish up to ฿${activeReward.maxValue}`;
-    return res.status(400).json({
-      success: false,
-      error: "REDEMPTION_ITEM_MISSING",
-      message: `Add ${label} to your cart to use your reward.`,
-    });
   }
 
   const foodTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
@@ -1916,7 +1891,8 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   });
 
   if (loyaltyResult && loyaltyResult.resetHappened && target) {
-    const rewardLabel = activeReward ? activeReward.itemName : "their reward";
+    const redeemedLine = redeemApplied ? lines.find((l) => l.name.includes("(reward redeemed)")) : null;
+    const rewardLabel = redeemedLine ? redeemedLine.name.replace(" (reward redeemed)", "") : "their reward";
     try {
       await client.pushMessage(target, {
         type: "text",
@@ -2072,11 +2048,14 @@ async function handleEvent(event) {
           });
           return;
         }
-        const ok = await setRewardConfig(parsed.tier, parsed.item);
+        const configPayload = parsed.tier === TIER_LOW ? parsed.item : parsed.items;
+        const ok = await setRewardConfig(parsed.tier, configPayload);
+        const label =
+          parsed.tier === TIER_LOW ? parsed.item.name : parsed.items.map((d) => d.name).join(" or ");
         await client.replyMessage(event.replyToken, {
           type: "text",
           text: ok
-            ? `Done. The ${parsed.tier}-point reward is now ${typeof parsed.item === "number" ? `any dish up to ฿${parsed.item}` : parsed.item.name}.`
+            ? `Done. The ${parsed.tier}-point reward is now ${label}.`
             : `Couldn't update the Reward Config sheet just now. Try again in a moment, or edit it directly.`,
         });
         return;

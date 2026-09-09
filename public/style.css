@@ -137,6 +137,19 @@ button, input, textarea, select {
   background: var(--cream);
 }
 .category-tabs::-webkit-scrollbar { display: none; }
+
+.direct-order-banner {
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1.5px solid var(--gold);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
 .cat-tab {
   flex: 0 0 auto;
   background: var(--card);

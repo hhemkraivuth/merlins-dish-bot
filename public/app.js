@@ -42,9 +42,12 @@ let paymentMethod = "bank";
 let slipFile = null;
 
 // ---------- loyalty / free pasta reward ----------
-let freePastaAvailable = 0; // from the last successful /api/customer-lookup
-let redeemPastaChosen = false; // customer ticked the reward checkbox
-let redeemPastaDish = "ragu"; // "ragu" | "bolognese"
+// ---------- loyalty / reward ladder ----------
+const TIER_LOW = 5;
+const TIER_HIGH = 10;
+let loyaltyState = null; // last /api/customer-lookup response, or null before first lookup
+let redeemChosen = false; // customer ticked the reward checkbox
+let redeemTier = null; // 5 | 10 -- which tier is being redeemed, when eligible for both
 let lookupDebounceTimer = null;
 let lastLookedUpPhone = "";
 
@@ -335,7 +338,7 @@ async function runCustomerLookup() {
   const phone = document.getElementById("cart-phone-input").value.trim();
   const digits = digitsOnly(phone);
   if (digits.length < 8) {
-    freePastaAvailable = 0;
+    loyaltyState = null;
     renderRewardBanner();
     return;
   }
@@ -344,36 +347,96 @@ async function runCustomerLookup() {
 
   try {
     const res = await fetch(`/api/customer-lookup?phone=${encodeURIComponent(phone)}`);
-    const data = await res.json();
-    freePastaAvailable = data.freePastaAvailable || 0;
+    loyaltyState = await res.json();
   } catch (err) {
     console.error("Customer lookup failed:", err);
-    freePastaAvailable = 0;
+    loyaltyState = null;
+  }
+  // Default which tier to offer: prefer the lower one if both are somehow
+  // open (shouldn't happen once redeemed, but keeps this defensive).
+  if (loyaltyState) {
+    if (loyaltyState.canRedeemLow) redeemTier = TIER_LOW;
+    else if (loyaltyState.canRedeemHigh) redeemTier = TIER_HIGH;
+    else redeemTier = null;
   }
   renderRewardBanner();
 }
 
+// Merlin doesn't do fluff or sweet talk, just a straight, warm nudge.
+function progressCopy(state) {
+  if (!state || !state.found) {
+    return "Every order counts toward a reward. Merlin remembers.";
+  }
+  if (state.canRedeemHigh) {
+    return "Order ten. This one's on Merlin's.";
+  }
+  if (state.canRedeemLow) {
+    const toGo = state.ordersToHigh;
+    return `You've earned it. Take it now, or hold out, ${toGo} more order${toGo === 1 ? "" : "s"} gets you the bigger reward.`;
+  }
+  const toGo = state.ordersToLow;
+  return `${toGo} order${toGo === 1 ? "" : "s"} to your first reward.`;
+}
+
 function renderRewardBanner() {
   const banner = document.getElementById("reward-banner");
-  const checkbox = document.getElementById("redeem-pasta-checkbox");
-  if (freePastaAvailable >= 1) {
-    banner.classList.remove("hidden");
-  } else {
+  const progressText = document.getElementById("reward-progress-text");
+  const toggleRow = document.getElementById("reward-toggle-row");
+  const toggleLabel = document.getElementById("reward-toggle-label");
+  const checkbox = document.getElementById("redeem-reward-checkbox");
+
+  if (!loyaltyState) {
     banner.classList.add("hidden");
-    checkbox.checked = false;
-    redeemPastaChosen = false;
+    return;
   }
+
+  banner.classList.remove("hidden");
+  progressText.textContent = progressCopy(loyaltyState);
+
+  const canRedeemSomething = loyaltyState.canRedeemLow || loyaltyState.canRedeemHigh;
+  toggleRow.classList.toggle("hidden", !canRedeemSomething);
+
+  if (!canRedeemSomething) {
+    checkbox.checked = false;
+    redeemChosen = false;
+    renderRedeemOptions();
+    return;
+  }
+
+  const cfg = loyaltyState.rewardConfig || {};
+  const tierCfg = redeemTier === TIER_LOW ? cfg.low : cfg.high;
+  const itemLabel = tierCfg
+    ? tierCfg.menuItemId
+      ? tierCfg.itemName
+      : `any dish up to ฿${tierCfg.maxValue}`
+    : "your reward";
+
+  // Both tiers open at once only happens if canRedeemLow and canRedeemHigh
+  // were both true, which the backend never actually returns together --
+  // canRedeemLow is false once orderCount reaches 10. So there's always
+  // exactly one tier on offer here.
+  toggleLabel.textContent = `🎉 Use your reward now? (${itemLabel})`;
   renderRedeemOptions();
 }
 
 function renderRedeemOptions() {
   const optionsWrap = document.getElementById("redeem-pasta-options");
   const hint = document.getElementById("redeem-pasta-hint");
-  optionsWrap.classList.toggle("hidden", !redeemPastaChosen);
-  hint.classList.toggle("hidden", !redeemPastaChosen);
-  optionsWrap.querySelectorAll("[data-redeem-dish]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.redeemDish === redeemPastaDish);
-  });
+  const cfg = loyaltyState && loyaltyState.rewardConfig;
+  const tierCfg = cfg && (redeemTier === TIER_LOW ? cfg.low : cfg.high);
+
+  // Only show the hint text -- there's no dish picker here anymore, since
+  // the reward item is whatever's configured in the sheet, not a fixed
+  // choice between two dishes. The hint just tells them what to add.
+  optionsWrap.classList.add("hidden");
+  if (!redeemChosen || !tierCfg) {
+    hint.classList.add("hidden");
+    return;
+  }
+  hint.classList.remove("hidden");
+  hint.textContent = tierCfg.menuItemId
+    ? `Add ${tierCfg.itemName} to your cart -- any add-on surcharges (like noodle upgrades) still apply.`
+    : `Add any dish priced ฿${tierCfg.maxValue} or under to your cart to use this.`;
 }
 
 function updateCartBar() {
@@ -630,8 +693,11 @@ function renderReviewScreen() {
   linesWrap.innerHTML = cartLines()
     .map((l) => `<div class="summary-line"><span>${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
     .join("");
-  if (isRedeemingPasta()) {
-    linesWrap.innerHTML += `<div class="summary-line"><span>🎉 Free pasta reward (${redeemPastaDish === "ragu" ? "Noir Ragu" : "Polished Pork Bolognese"})</span><span>Applied at checkout</span></div>`;
+  if (isRedeemingReward()) {
+    const cfg = loyaltyState.rewardConfig;
+    const tierCfg = redeemTier === TIER_LOW ? cfg.low : cfg.high;
+    const label = tierCfg.menuItemId ? tierCfg.itemName : `any dish up to ฿${tierCfg.maxValue}`;
+    linesWrap.innerHTML += `<div class="summary-line"><span>🎉 Reward redeemed (${label})</span><span>Applied at checkout</span></div>`;
   }
   const foodTotal = cartTotal();
   const grandTotal = foodTotal + confirmedDeliveryFee;
@@ -652,12 +718,23 @@ function renderReviewScreen() {
   updatePlaceOrderEnabled();
 }
 
-// True only if the customer ticked the reward checkbox AND actually has
-// the redeemed dish in their cart -- the server re-validates this again
-// regardless, this is just for showing the line on the review screen.
-function isRedeemingPasta() {
-  if (!redeemPastaChosen || freePastaAvailable < 1) return false;
-  return cartLines().some((l) => l.itemId === redeemPastaDish);
+// True only if the customer ticked the reward checkbox AND is actually
+// eligible AND has a qualifying dish in their cart -- the server
+// re-validates this again regardless, this is just for the review screen.
+function isRedeemingReward() {
+  if (!redeemChosen || !loyaltyState || !redeemTier) return false;
+  const eligible = redeemTier === TIER_LOW ? loyaltyState.canRedeemLow : loyaltyState.canRedeemHigh;
+  if (!eligible) return false;
+  const cfg = loyaltyState.rewardConfig;
+  const tierCfg = redeemTier === TIER_LOW ? cfg.low : cfg.high;
+  if (!tierCfg) return false;
+  if (tierCfg.menuItemId) {
+    return cartLines().some((l) => l.itemId === tierCfg.menuItemId);
+  }
+  return cartLines().some((l) => {
+    const dish = MENU.find((d) => d.id === l.itemId);
+    return dish && dish.price <= tierCfg.maxValue;
+  });
 }
 
 function applyPaymentMethodUI() {
@@ -694,7 +771,7 @@ async function submitOrder() {
     name: document.getElementById("cart-name-input").value.trim(),
     phone: document.getElementById("cart-phone-input").value.trim(),
     paymentMethod,
-    redeemPasta: isRedeemingPasta() ? { dish: redeemPastaDish } : null,
+    redeemTier: isRedeemingReward() ? redeemTier : null,
   };
 
   const form = new FormData();
@@ -741,11 +818,11 @@ function resetOrder() {
   document.getElementById("slip-input").value = "";
   document.getElementById("slip-preview").classList.add("hidden");
   document.getElementById("location-result").classList.add("hidden");
-  freePastaAvailable = 0;
-  redeemPastaChosen = false;
-  redeemPastaDish = "ragu";
+  loyaltyState = null;
+  redeemChosen = false;
+  redeemTier = null;
   lastLookedUpPhone = "";
-  document.getElementById("redeem-pasta-checkbox").checked = false;
+  document.getElementById("redeem-reward-checkbox").checked = false;
   document.getElementById("reward-banner").classList.add("hidden");
   updateCartBar();
   renderItemList();
@@ -775,15 +852,9 @@ function wireStaticEvents() {
     scheduleCustomerLookup();
   });
 
-  document.getElementById("redeem-pasta-checkbox").addEventListener("change", (e) => {
-    redeemPastaChosen = e.target.checked;
+  document.getElementById("redeem-reward-checkbox").addEventListener("change", (e) => {
+    redeemChosen = e.target.checked;
     renderRedeemOptions();
-  });
-  document.querySelectorAll("[data-redeem-dish]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      redeemPastaDish = btn.dataset.redeemDish;
-      renderRedeemOptions();
-    });
   });
 
   document.querySelectorAll("[data-timing]").forEach((btn) => {

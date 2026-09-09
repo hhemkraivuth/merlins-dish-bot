@@ -368,11 +368,16 @@ button, input, textarea, select {
   background: #FFF6E0;
   border: 1.5px solid #F0C86B;
 }
+.reward-progress-text {
+  font-weight: 800;
+  font-size: 14px;
+  margin: 0 0 6px;
+}
 .reward-toggle-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 14px;
   cursor: pointer;
 }

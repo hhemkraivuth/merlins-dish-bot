@@ -279,7 +279,21 @@ button, input, textarea, select {
 .btn-primary { background: var(--red); color: #fff; }
 .btn-primary:disabled { background: #E8B7B5; cursor: not-allowed; }
 .btn-secondary { background: var(--card); color: var(--ink); border: 1.5px solid var(--line); }
+.btn-secondary:disabled { color: var(--ink-soft); cursor: not-allowed; opacity: 0.6; }
 .btn-block { width: 100%; }
+
+.reward-cta-text {
+  margin: 16px 16px 4px;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+#check-reward-btn {
+  margin: 14px 16px 0;
+  width: calc(100% - 32px);
+}
+
 
 /* ---------- cart review screen ---------- */
 .cart-lines {

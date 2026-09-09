@@ -60,18 +60,17 @@
   <section class="field-group">
     <label for="cart-phone-input">Contact number</label>
     <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
+    <p class="hint">Fill this in to see if you've earned a free reward.</p>
   </section>
 
   <section id="reward-banner" class="reward-banner hidden">
-    <label class="reward-toggle-row">
-      <input type="checkbox" id="redeem-pasta-checkbox" />
-      <span>🎉 You have a free pasta! Use it on this order?</span>
+    <p id="reward-progress-text" class="reward-progress-text"></p>
+    <label id="reward-toggle-row" class="reward-toggle-row hidden">
+      <input type="checkbox" id="redeem-reward-checkbox" />
+      <span id="reward-toggle-label"></span>
     </label>
-    <div id="redeem-pasta-options" class="pill-toggle hidden">
-      <button type="button" class="pill active" data-redeem-dish="ragu">Noir Ragu</button>
-      <button type="button" class="pill" data-redeem-dish="bolognese">Polished Pork Bolognese</button>
-    </div>
-    <p id="redeem-pasta-hint" class="hint hidden">Add this dish to your cart to apply the reward -- noodle upgrades (Tubetti/Radiatori) still carry their usual small surcharge.</p>
+    <div id="redeem-pasta-options" class="pill-toggle hidden"></div>
+    <p id="redeem-pasta-hint" class="hint hidden"></p>
   </section>
 
   <div class="bottom-actions">

@@ -192,17 +192,21 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) 
 let rewardCache = null;
 let rewardCacheAt = 0;
 
-// Returns { low: {itemName, menuItemId, maxValue}, high: {...} }.
-// Falls back to Bacon Steak / any-dish-under-200 if the tab is missing
-// or a row is blank, so the bot never crashes just because the sheet
-// setup isn't finished yet.
-async function getRewardConfig() {
-  const fallback = {
-    low: { itemName: "Bacon Steak", menuItemId: "bacon_steak", maxValue: null },
-    high: { itemName: "Free Meal (up to ฿200)", menuItemId: null, maxValue: 200 },
-  };
+// Returns { low: {itemName, menuItemId}, high: {dishChoices: [{id, name}]} }.
+// Tier 5 is always a single fixed dish. Tier 10 is a short list the
+// customer picks from at checkout -- falls back to Bacon Steak / a
+// Bolognese+Chicken Soup pick-list if the tab is missing or a row is
+// blank, so the bot never crashes just because the sheet isn't set up.
+async function getRewardConfig(menu) {
+  const fallbackLow = { itemName: "Bacon Steak", menuItemId: "bacon_steak" };
+  const fallbackHighIds = ["bolognese", "chicken_soup"];
+  const buildFallback = () => ({
+    low: fallbackLow,
+    high: { dishChoices: fallbackHighIds.map((id) => resolveMenuName(id, menu)) },
+  });
+
   const client = getClient();
-  if (!client) return fallback;
+  if (!client) return buildFallback();
 
   const now = Date.now();
   if (rewardCache && now - rewardCacheAt < CACHE_TTL_MS) return rewardCache;
@@ -213,41 +217,50 @@ async function getRewardConfig() {
       range: "Reward Config!A2:D3",
     });
     const rows = res.data.values || [];
-    const parseRow = (row, fb) =>
-      row
-        ? {
-            itemName: row[1] || fb.itemName,
-            menuItemId: row[2] || fb.menuItemId,
-            maxValue: row[3] ? Number(row[3]) : fb.maxValue,
-          }
-        : fb;
     const lowRow = rows.find((r) => String(r[0]).trim() === String(TIER_LOW));
     const highRow = rows.find((r) => String(r[0]).trim() === String(TIER_HIGH));
-    rewardCache = { low: parseRow(lowRow, fallback.low), high: parseRow(highRow, fallback.high) };
+
+    const low = lowRow
+      ? { itemName: lowRow[1] || fallbackLow.itemName, menuItemId: lowRow[2] || fallbackLow.menuItemId }
+      : fallbackLow;
+
+    const highIds = highRow && highRow[3]
+      ? highRow[3].split(",").map((s) => s.trim()).filter(Boolean)
+      : fallbackHighIds;
+    const high = { dishChoices: highIds.map((id) => resolveMenuName(id, menu)) };
+
+    rewardCache = { low, high };
     rewardCacheAt = now;
     return rewardCache;
   } catch (err) {
     console.error("Reward config lookup failed, using fallback:", err.message);
-    return fallback;
+    return buildFallback();
   }
+}
+
+// Turns a menu id into {id, name} for the frontend dropdown, falling
+// back to the raw id as the name if the dish isn't found (shouldn't
+// happen, but keeps this from ever throwing).
+function resolveMenuName(id, menu) {
+  const dish = menu && menu.find((d) => d.id === id);
+  return { id, name: dish ? dish.name : id };
 }
 
 function invalidateRewardCache() {
   rewardCache = null;
 }
 
-// Writes a new reward for one tier (5 or 10). item is a menu.js dish
-// object ({id, name}) for a fixed-dish reward, or a plain number for
-// an any-dish-under-value reward.
-async function setRewardConfig(tier, item) {
+// Writes a new reward for tier 5 (a single menu.js dish object, {id, name})
+// or tier 10 (an array of menu.js dish objects, the pick-list).
+async function setRewardConfig(tier, itemOrList) {
   const client = getClient();
   if (!client) return false;
   const rowNum = tier === TIER_LOW ? 2 : 3;
 
   const values =
-    typeof item === "number"
-      ? [tier, `Free Meal (up to ฿${item})`, "", item]
-      : [tier, item.name, item.id, ""];
+    tier === TIER_LOW
+      ? [tier, itemOrList.name, itemOrList.id, ""]
+      : [tier, "", "", itemOrList.map((d) => d.id).join(",")];
 
   try {
     await client.spreadsheets.values.update({
@@ -266,13 +279,16 @@ async function setRewardConfig(tier, item) {
 
 // ---------- Natural-language reward-change command ----------
 // Matches things like:
-//   "change the 5 point reward to bacon steak"
-//   "set 10pt reward to tuscan pork braise"
-//   "make the 5-point prize the mushroom soup"
-//   "10 point reward should be any dish up to 250"
-// Returns { tier, item } if it matched, or null if this message
-// wasn't a reward-change command at all (so the caller can ignore it
-// and fall through to normal handling).
+//   "change the 5 point reward to bacon steak"          -> tier 5, single dish
+//   "set 10pt reward to bolognese and chicken soup"      -> tier 10, dish list
+//   "make the 5-point prize the mushroom soup"           -> tier 5, single dish
+//   "10 point reward should be tuscan pork braise, ragu" -> tier 10, dish list
+// Returns { tier, item } for tier 5 (item is a single dish), or
+// { tier, items } for tier 10 (items is an array of dishes), or null if
+// this message wasn't a reward-change command at all (so the caller can
+// ignore it and fall through to normal handling). If a name couldn't be
+// matched to any menu item, returns { tier, unmatchedName } instead so
+// the caller can report it rather than silently doing nothing.
 function parseRewardChangeCommand(text, menu) {
   const lower = text.toLowerCase();
 
@@ -284,22 +300,29 @@ function parseRewardChangeCommand(text, menu) {
   const hasRewardNoun = /\b(reward|prize|gift)\b/.test(lower);
   if (!hasChangeVerb && !hasRewardNoun) return null;
 
-  // "...up to 250" / "...under 200 baht" style -> any-dish-under-value reward.
-  const valueMatch = lower.match(/(?:up to|under|below|max)\s*(?:฿|thb)?\s*(\d{2,5})/);
-  if (valueMatch) {
-    return { tier, item: Number(valueMatch[1]) };
-  }
-
-  // Otherwise take whatever comes after "to" / "is" / "should be" as the
-  // dish name, and fuzzy-match it against the menu.
-  const nameMatch = lower.match(/(?:\bto\b|\bis\b|\bshould be\b)\s+(?:the\s+)?([a-z0-9\s]+)$/);
+  // Take whatever comes after "to" / "is" / "should be" as the dish
+  // name(s), splitting on "and" / "," for tier 10's multi-dish list.
+  const nameMatch = lower.match(/(?:\bto\b|\bis\b|\bshould be\b)\s+(?:the\s+)?([a-z0-9\s,]+)$/);
   if (!nameMatch) return null;
   const spoken = nameMatch[1].trim();
   if (!spoken) return null;
 
-  const dish = fuzzyMatchMenuItem(spoken, menu);
-  if (!dish) return { tier, item: null, unmatchedName: spoken }; // let caller report "couldn't find that dish"
-  return { tier, item: dish };
+  if (tier === TIER_LOW) {
+    const dish = fuzzyMatchMenuItem(spoken, menu);
+    if (!dish) return { tier, unmatchedName: spoken };
+    return { tier, item: dish };
+  }
+
+  // Tier 10: split on "and"/"," into separate dish names, match each one.
+  const spokenNames = spoken.split(/\s*(?:,|\band\b)\s*/).filter(Boolean);
+  const dishes = [];
+  for (const name of spokenNames) {
+    const dish = fuzzyMatchMenuItem(name, menu);
+    if (!dish) return { tier, unmatchedName: name };
+    dishes.push(dish);
+  }
+  if (dishes.length === 0) return null;
+  return { tier, items: dishes };
 }
 
 // Simple, dependency-free fuzzy match: exact name match first, then

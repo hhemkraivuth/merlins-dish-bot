@@ -52,6 +52,8 @@
   </header>
   <main id="cart-lines" class="cart-lines"></main>
 
+  <p class="reward-cta-text">🎉 Got a reward waiting? Fill in your name and number below to find out.</p>
+
   <section class="field-group">
     <label for="cart-name-input">Name</label>
     <input type="text" id="cart-name-input" class="text-input" placeholder="Your name" />
@@ -60,8 +62,9 @@
   <section class="field-group">
     <label for="cart-phone-input">Contact number</label>
     <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
-    <p class="hint">Fill this in to see if you've earned a free reward.</p>
   </section>
+
+  <button id="check-reward-btn" type="button" class="btn btn-secondary btn-block" disabled>Check your reward</button>
 
   <section id="reward-banner" class="reward-banner hidden">
     <p id="reward-progress-text" class="reward-progress-text"></p>

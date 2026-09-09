@@ -33,6 +33,7 @@ const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
 const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
 const { logOrder, logMenuTap } = require("./sheetLogger");
+const { getCustomer, recordOrder, normalisePhone, REWARD_EVERY_N_ORDERS } = require("./customers");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -186,6 +187,17 @@ function qtyInCartForItem(cart, itemId) {
   return Object.values(cart)
     .filter((entry) => entry.itemId === itemId)
     .reduce((sum, entry) => sum + entry.qty, 0);
+}
+
+function ordinalSuffix(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return "th";
+  switch (n % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
 }
 
 function cartTotal(cart) {
@@ -1606,6 +1618,27 @@ app.get("/api/delivery-fee/:requestId", (req, res) => {
   res.json({ status: entry.status, fee: entry.fee });
 });
 
+// Called from the cart screen once the customer has typed enough digits.
+// Never trusted for pricing -- only tells the browser whether to show the
+// "you have a free pasta" toggle. Eligibility is re-checked server-side
+// again in /api/place-order before any discount is actually applied.
+app.get("/api/customer-lookup", async (req, res) => {
+  const phone = normalisePhone(req.query.phone || "");
+  if (!phone) {
+    return res.json({ found: false, freePastaAvailable: 0 });
+  }
+  const customer = await getCustomer(phone);
+  if (!customer) {
+    return res.json({ found: false, freePastaAvailable: 0 });
+  }
+  res.json({
+    found: customer.found,
+    name: customer.name,
+    orderCount: customer.orderCount,
+    freePastaAvailable: customer.freePastaAvailable,
+  });
+});
+
 app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   if (!isShopOpen()) {
     return res.status(409).json({ success: false, error: "SHOP_CLOSED", message: closedMessage() });
@@ -1629,6 +1662,25 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   }
   if (!order.addressNote || !order.addressNote.trim()) {
     return res.status(400).json({ success: false, error: "MISSING_INFO", message: "Please add a note for the rider (unit number or where to deliver)." });
+  }
+
+  // Free-pasta redemption: re-check eligibility server-side, never trust
+  // a flag from the browser. Max 1 redemption per checkout, applied to
+  // the FIRST matching Ragu/Bolognese line only -- base plate price is
+  // zeroed, any Tubetti/Radiatori noodle surcharge still applies.
+  let redeemPasta = null; // will hold { dish: 'ragu'|'bolognese' } if valid
+  let redeemApplied = false;
+  if (order.redeemPasta && order.redeemPasta.dish) {
+    const requestedPhone = normalisePhone(order.phone);
+    const customer = requestedPhone ? await getCustomer(requestedPhone) : null;
+    if (customer && customer.freePastaAvailable >= 1) {
+      if (order.redeemPasta.dish === "ragu" || order.redeemPasta.dish === "bolognese") {
+        redeemPasta = order.redeemPasta;
+      }
+    }
+    // If eligibility fails (e.g. they lied, or redeemed it elsewhere in
+    // the meantime), we simply don't apply it -- order still goes through
+    // at full price rather than failing the checkout outright.
   }
 
   // Recompute everything server-side from menu.js -- never trust prices
@@ -1659,7 +1711,35 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         if (dish.requiresPasta) price += pasta.mandatorySurcharge || 0;
       }
     }
-    lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
+    let isRedemption = false;
+    if (redeemPasta && !redeemApplied && dish.id === redeemPasta.dish) {
+      // Zero out only the base dish price for ONE portion. Noodle surcharge
+      // (already folded into `price` above) still applies. If qty > 1,
+      // only the first portion's base price is free -- split the line so
+      // the discount doesn't accidentally apply to every portion ordered.
+      const surcharge = price - dish.price; // isolates just the noodle add-on
+      if (reqItem.qty > 1) {
+        lines.push({ itemId: dish.id, name: `${name} (free pasta reward)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+        lines.push({ itemId: dish.id, name, price, qty: reqItem.qty - 1, pastaChoice: reqItem.pastaChoice || null });
+      } else {
+        lines.push({ itemId: dish.id, name: `${name} (free pasta reward)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+      }
+      redeemApplied = true;
+      isRedemption = true;
+    }
+    if (!isRedemption) {
+      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
+    }
+  }
+
+  // If a redemption was requested but the requested dish wasn't actually
+  // in the cart, don't silently charge full price without saying why.
+  if (redeemPasta && !redeemApplied) {
+    return res.status(400).json({
+      success: false,
+      error: "REDEMPTION_ITEM_MISSING",
+      message: `Add ${redeemPasta.dish === "ragu" ? "Noir Ragu + Pasta" : "Polished Pork Bolognese + Pasta"} to your cart to use your free pasta reward.`,
+    });
   }
 
   const foodTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
@@ -1793,6 +1873,24 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     slipRef: slip.transRef,
     slipUrl,
   });
+
+  const loyaltyResult = await recordOrder({
+    phone: order.phone,
+    name: order.name,
+    lineUserId: order.lineUserId,
+    redeemed: redeemApplied,
+  });
+
+  if (loyaltyResult && loyaltyResult.justHitMilestone && target) {
+    try {
+      await client.pushMessage(target, {
+        type: "text",
+        text: `🎉 ${order.name} just placed their ${loyaltyResult.orderCount}${ordinalSuffix(loyaltyResult.orderCount)} order, free pasta reward earned!`,
+      });
+    } catch (err) {
+      console.error("Failed to push milestone notification:", err.message);
+    }
+  }
 
   if (order.lineUserId) {
     try {

@@ -1,566 +1,200 @@
-/* ============================================================
-   THEME -- edit colors and fonts here, nowhere else in this file
-   needs to change. Font names must also be updated in index.html's
-   Google Fonts <link> tag (swap the family names in that URL to match).
-   ============================================================ */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Merlin's Dish</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
 
-/* Self-hosted from your own site (not a font CDN) for reliability --
-   same reasoning as moving images off GitHub. Upload the font file to
-   public/fonts/bryndan-write.ttf in your repo and this picks it up
-   automatically once deployed. */
-@font-face {
-  font-family: 'Bryndan Write';
-  src: url('/fonts/bryndan-write.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
+<div id="loading-screen" class="screen active">
+  <div class="loading-wrap">
+    <div class="loading-badge">✨</div>
+    <p>Warming up the kitchen…</p>
+  </div>
+</div>
 
-:root {
-  /* Colors */
-  --cream: #FBF1E1;
-  --cream-deep: #F3E4CB;
-  --ink: #3A2A1E;
-  --ink-soft: #7A6753;
-  --red: #E8302A;
-  --red-deep: #C21F1B;
-  --gold: #D9A441;
-  --line: #E9D8BC;
-  --card: #FFFFFF;
-  --success: #3F8F5F;
+<!-- ===================== MENU + CART SCREEN ===================== -->
+<div id="menu-screen" class="screen">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">🥘</span>
+      <div>
+        <h1>Merlin's Dish</h1>
+        <p>Comfort Food Made With Magic ✨</p>
+      </div>
+    </div>
+  </header>
 
-  /* Fonts -- double check the licence on whichever site you download
-     Bryndan Write from before using it commercially; sources disagree
-     on whether commercial use is included. */
-  --font-headline: 'Bryndan Write', cursive;
-  --font-body: 'Poppins', sans-serif;
+  <nav id="category-tabs" class="category-tabs"></nav>
 
-  --radius: 18px;
-  --radius-sm: 12px;
-}
+  <main id="item-list" class="item-list"></main>
 
-* { box-sizing: border-box; }
+  <div id="cart-bar" class="cart-bar hidden">
+    <div class="cart-bar-info">
+      <span id="cart-count">0 items</span>
+      <strong id="cart-total">฿0</strong>
+    </div>
+    <button id="view-cart-btn" class="btn btn-primary">View cart</button>
+  </div>
+</div>
 
-html, body {
-  margin: 0;
-  padding: 0;
-  background: var(--cream);
-  color: var(--ink);
-  font-family: var(--font-body);
-  -webkit-tap-highlight-color: transparent;
-}
+<!-- ===================== CART REVIEW SCREEN ===================== -->
+<div id="cart-screen" class="screen">
+  <header class="subbar">
+    <button class="back-btn" data-back="menu-screen">←</button>
+    <h2>Your cart</h2>
+  </header>
+  <main id="cart-lines" class="cart-lines"></main>
 
-h1, h2 {
-  font-family: var(--font-headline);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin: 0;
-}
-h3 { margin: 0; font-weight: 700; }
+  <p class="reward-cta-text">🎉 Got a reward waiting? Fill in your name and number below to find out.</p>
 
-button, input, textarea, select {
-  font-family: inherit;
-  font-size: 16px;
-}
+  <section class="field-group">
+    <label for="cart-name-input">Name</label>
+    <input type="text" id="cart-name-input" class="text-input" placeholder="Your name" />
+  </section>
 
-.screen {
-  display: none;
-  min-height: 100vh;
-  flex-direction: column;
-}
-.screen.active { display: flex; }
+  <section class="field-group">
+    <label for="cart-phone-input">Contact number</label>
+    <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
+  </section>
 
-/* ---------- loading ---------- */
-#loading-screen .loading-wrap {
-  margin: auto;
-  text-align: center;
-  color: var(--ink-soft);
-}
-.loading-badge {
-  font-size: 40px;
-  animation: spin-slow 2.2s linear infinite;
-  display: inline-block;
-  margin-bottom: 8px;
-}
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+  <button id="check-reward-btn" type="button" class="btn btn-secondary btn-block" disabled>Check your reward</button>
 
-/* ---------- top bar ---------- */
-.topbar {
-  background: var(--red);
-  color: #fff;
-  padding: 18px 20px 22px;
-  border-radius: 0 0 24px 24px;
-}
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { font-size: 32px; }
-.topbar h1 { font-size: 24px; color: #fff; }
-.topbar p { margin: 2px 0 0; font-size: 13px; opacity: 0.9; }
+  <section id="reward-banner" class="reward-banner hidden">
+    <p id="reward-progress-text" class="reward-progress-text"></p>
+    <label id="reward-toggle-row" class="reward-toggle-row hidden">
+      <input type="checkbox" id="redeem-reward-checkbox" />
+      <span id="reward-toggle-label"></span>
+    </label>
+    <div id="redeem-pasta-options" class="pill-toggle hidden"></div>
+    <p id="redeem-pasta-hint" class="hint hidden"></p>
+  </section>
 
-.subbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 16px 12px;
-  background: var(--cream);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-.subbar h2 { font-size: 21px; }
-.back-btn {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--ink);
-}
+  <div class="bottom-actions">
+    <div class="total-row">
+      <span>Total</span>
+      <strong id="cart-screen-total">฿0</strong>
+    </div>
+    <button id="checkout-btn" class="btn btn-primary btn-block" disabled>Checkout</button>
+  </div>
+</div>
 
-/* ---------- category tabs ---------- */
-.category-tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 14px 16px;
-  margin-top: -14px;
-  scrollbar-width: none;
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  background: var(--cream);
-}
-.category-tabs::-webkit-scrollbar { display: none; }
-.cat-tab {
-  flex: 0 0 auto;
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  border-radius: 999px;
-  padding: 9px 16px;
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--ink-soft);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.cat-tab.active {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-}
+<!-- ===================== DELIVERY DETAILS SCREEN ===================== -->
+<div id="delivery-screen" class="screen">
+  <header class="subbar">
+    <button class="back-btn" data-back="cart-screen">←</button>
+    <h2>Delivery details</h2>
+  </header>
+  <main class="form-area">
 
-/* ---------- item list ---------- */
-.item-list {
-  flex: 1;
-  padding: 4px 16px 100px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.category-heading {
-  font-size: 18px;
-  color: var(--ink-soft);
-  margin: 10px 2px 0;
-  font-weight: 800;
-  scroll-margin-top: 64px;
-}
-.item-card {
-  background: var(--card);
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  padding: 12px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.item-card.unavailable { opacity: 0.5; }
-.item-img {
-  width: 68px;
-  height: 68px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  background: var(--cream-deep);
-  flex-shrink: 0;
-}
-.item-img.placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-}
-.item-body { flex: 1; min-width: 0; }
-.item-body h3 { font-size: 15px; line-height: 1.25; }
-.item-price { color: var(--red-deep); font-weight: 800; font-size: 14px; margin: 2px 0 8px; }
-.stock-note { font-size: 12px; color: var(--gold); font-weight: 700; margin: -4px 0 6px; }
-.sold-out-note { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+    <section class="field-group">
+      <label>When would you like this?</label>
+      <div class="pill-toggle">
+        <button type="button" class="pill active" data-timing="ASAP">🕐 Right away</button>
+        <button type="button" class="pill" data-timing="SCHEDULED">📅 Schedule</button>
+      </div>
+      <input type="text" id="schedule-text" class="text-input hidden" placeholder='e.g. "7 Sep, 6:30 PM"' />
+    </section>
 
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.stepper button {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: none;
-  background: var(--cream-deep);
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 800;
-  cursor: pointer;
-  line-height: 1;
-}
-.stepper button.plus { background: var(--red); color: #fff; }
-.stepper .qty { min-width: 18px; text-align: center; font-weight: 800; }
+    <section class="field-group">
+      <label>Delivery location</label>
+      <p class="free-delivery-note">🎉 Free delivery within 2km, flat ฿50 for 2-5km, from Asok area</p>
+      <p class="hint">Touch and hold the pin, then drag it to where you want the delivery -- it doesn't have to be where you are right now.</p>
+      <div id="map" class="map-container"></div>
+      <button type="button" id="use-my-location-btn" class="btn btn-secondary btn-block">📍 Use my current location</button>
+      <div id="location-result" class="location-result hidden"></div>
+      <details class="manual-address-toggle">
+        <summary>Prefer to type the address instead?</summary>
+        <textarea id="manual-address" class="text-input" rows="2" placeholder="Full delivery address"></textarea>
+      </details>
+    </section>
 
-.pasta-select {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--line);
-  background: var(--cream);
-  margin-bottom: 8px;
-  font-weight: 700;
-  color: var(--ink);
-}
+    <section class="field-group">
+      <label for="address-note">Notes for the rider <span class="required-mark">*</span></label>
+      <input type="text" id="address-note" class="text-input" placeholder="Unit number or a place to deliver, e.g. lobby" required />
+    </section>
 
-.variant-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.add-line-btn {
-  background: var(--red);
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 7px 14px;
-  font-weight: 800;
-  font-size: 13px;
-  cursor: pointer;
-}
-.add-line-btn:disabled { opacity: 0.4; }
+    <button id="to-review-btn" class="btn btn-primary btn-block">Continue</button>
+  </main>
+</div>
 
-/* ---------- cart bar ---------- */
-.cart-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: var(--ink);
-  color: #fff;
-  padding: 14px 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-radius: 20px 20px 0 0;
-}
-.cart-bar.hidden { display: none; }
-.cart-bar-info { display: flex; flex-direction: column; }
-.cart-bar-info span { font-size: 12px; opacity: 0.8; }
-.cart-bar-info strong { font-size: 17px; }
+<!-- ===================== WAITING FOR DELIVERY FEE SCREEN ===================== -->
+<div id="waiting-fee-screen" class="screen">
+  <main class="confirm-wrap">
+    <div class="confirm-badge loading-spin">📍</div>
+    <h2>One moment</h2>
+    <p id="waiting-fee-status">Letting Merlin's Dish know about your delivery location...</p>
+    <button id="waiting-fee-back-btn" class="btn btn-secondary">Go back and edit</button>
+  </main>
+</div>
 
-/* ---------- buttons ---------- */
-.btn {
-  border: none;
-  border-radius: 999px;
-  padding: 13px 22px;
-  font-weight: 800;
-  font-size: 15px;
-  cursor: pointer;
-}
-.btn-primary { background: var(--red); color: #fff; }
-.btn-primary:disabled { background: #E8B7B5; cursor: not-allowed; }
-.btn-secondary { background: var(--card); color: var(--ink); border: 1.5px solid var(--line); }
-.btn-secondary:disabled { color: var(--ink-soft); cursor: not-allowed; opacity: 0.6; }
-.btn-block { width: 100%; }
+<!-- ===================== REVIEW & PAY SCREEN ===================== -->
+<div id="review-screen" class="screen">
+  <header class="subbar">
+    <button class="back-btn" data-back="delivery-screen">←</button>
+    <h2>Review &amp; pay</h2>
+  </header>
+  <main class="form-area">
 
-.reward-cta-text {
-  margin: 16px 16px 4px;
-  font-weight: 800;
-  font-size: 16px;
-  color: var(--ink);
-}
+    <section class="summary-card">
+      <div id="review-lines"></div>
+      <div class="summary-row"><span>Food total</span><strong id="review-food-total">฿0</strong></div>
+      <div class="summary-row"><span>Delivery</span><strong id="review-delivery">--</strong></div>
+      <div class="summary-row" id="review-timing-row"><span>Timing</span><strong id="review-timing">--</strong></div>
+      <div class="summary-row grand-total-row"><span>Total to pay</span><strong id="review-grand-total">฿0</strong></div>
+    </section>
 
-#check-reward-btn {
-  margin: 14px 16px 0;
-  width: calc(100% - 32px);
-}
+    <section class="field-group">
+      <label>Pay with</label>
+      <div class="pill-toggle">
+        <button type="button" class="pill active" data-pay="bank">💳 Bank Transfer</button>
+        <button type="button" class="pill" data-pay="qr">🔲 QR Code</button>
+      </div>
+      <div id="pay-bank-info" class="pay-info"></div>
+      <img id="pay-qr-image" class="pay-qr hidden" alt="Payment QR code" />
+    </section>
 
+    <section class="field-group">
+      <label for="slip-input">Payment slip</label>
+      <input type="file" id="slip-input" accept="image/*" />
+      <div id="slip-preview" class="slip-preview hidden"></div>
+    </section>
 
-/* ---------- cart review screen ---------- */
-.cart-lines {
-  flex: 1;
-  padding: 4px 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.cart-line {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-.cart-line-info { flex: 1; }
-.cart-line-info .name { font-weight: 700; font-size: 14px; }
-.cart-line-info .price { color: var(--ink-soft); font-size: 13px; }
-.remove-line-btn {
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: var(--ink-soft);
-}
-.empty-note {
-  text-align: center;
-  color: var(--ink-soft);
-  margin-top: 40px;
-}
+    <button id="place-order-btn" class="btn btn-primary btn-block" disabled>Place order</button>
+    <p id="submit-status" class="hint"></p>
+  </main>
+</div>
 
-.bottom-actions {
-  padding: 14px 16px 20px;
-  background: var(--cream);
-  border-top: 1px solid var(--line);
-}
-.total-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  font-weight: 800;
-  font-size: 17px;
-}
+<!-- ===================== CONFIRMATION SCREEN ===================== -->
+<div id="confirm-screen" class="screen">
+  <main class="confirm-wrap">
+    <div class="confirm-badge">✨</div>
+    <h2>Order placed!</h2>
+    <p id="confirm-message">Your order is confirmed and on its way to the kitchen.</p>
+    <button id="new-order-btn" class="btn btn-primary">Start a new order</button>
+  </main>
+</div>
 
-/* ---------- forms ---------- */
-.form-area {
-  flex: 1;
-  padding: 6px 16px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.field-group label {
-  display: block;
-  font-weight: 800;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-.required-mark {
-  color: var(--danger, #d84f4f);
-}
-.text-input, textarea.text-input {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--line);
-  background: var(--card);
-  color: var(--ink);
-}
-.hidden { display: none !important; }
-.hint { font-size: 12px; color: var(--ink-soft); margin: 8px 2px 0; }
+<div id="closed-screen" class="screen">
+  <main class="confirm-wrap">
+    <div class="confirm-badge">🕐</div>
+    <h2>We're closed right now</h2>
+    <p id="closed-message">Merlin's Dish is open Monday-Friday, 11:00-21:00.</p>
+    <button id="closed-back-btn" class="btn btn-primary">Back to menu</button>
+  </main>
+</div>
 
-#cart-screen .field-group {
-  padding: 0 16px;
-  margin-top: 16px;
-}
+<!-- ===================== ERROR TOAST ===================== -->
+<div id="toast" class="toast hidden"></div>
 
-.reward-banner {
-  margin: 16px 16px 0;
-  padding: 14px;
-  border-radius: var(--radius-sm);
-  background: #FFF6E0;
-  border: 1.5px solid #F0C86B;
-}
-.reward-progress-text {
-  font-weight: 800;
-  font-size: 14px;
-  margin: 0 0 6px;
-}
-.reward-toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 700;
-  font-size: 14px;
-  cursor: pointer;
-}
-.reward-toggle-row input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-#redeem-pasta-options { margin-top: 12px; }
-#redeem-pasta-hint { margin-top: 10px; }
-
-.pill-toggle { display: flex; gap: 8px; }
-.pill {
-  flex: 1;
-  padding: 11px 10px;
-  border-radius: 999px;
-  border: 1.5px solid var(--line);
-  background: var(--card);
-  font-weight: 800;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--ink-soft);
-}
-.pill.active { background: var(--ink); border-color: var(--ink); color: #fff; }
-
-.map-container {
-  width: 100%;
-  height: 240px;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--line);
-  margin-bottom: 10px;
-  overflow: hidden;
-}
-
-.free-delivery-note {
-  background: var(--cream-deep);
-  border: 1.5px solid var(--gold);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--ink);
-  margin: 0 0 8px;
-}
-
-/* Custom map pin -- drawn with CSS (no external icon image), bigger
-   than Leaflet's default for an easier touch target on mobile. */
-.custom-pin-icon {
-  width: 36px;
-  height: 36px;
-  background: var(--red);
-  border: 4px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
-  cursor: grab;
-}
-.custom-pin-icon:active { cursor: grabbing; }
-
-.location-result {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  font-size: 13px;
-  font-weight: 700;
-}
-.location-result.free { border-color: var(--success); color: var(--success); }
-.location-result.flat-fee { border-color: var(--success); color: var(--success); }
-.location-result.manual { border-color: var(--gold); color: #8a6314; }
-
-.manual-address-toggle { margin-top: 10px; font-size: 13px; }
-.manual-address-toggle summary { cursor: pointer; color: var(--ink-soft); font-weight: 700; }
-.manual-address-toggle textarea { margin-top: 8px; }
-
-/* ---------- review & pay ---------- */
-.summary-card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 14px;
-}
-.summary-line {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  padding: 4px 0;
-}
-.summary-row {
-  display: flex;
-  justify-content: space-between;
-  padding-top: 8px;
-  margin-top: 8px;
-  border-top: 1px dashed var(--line);
-  font-size: 14px;
-}
-.summary-row.grand-total-row {
-  font-size: 17px;
-  font-weight: 800;
-  border-top: 2px solid var(--ink);
-}
-
-.loading-spin {
-  animation: spin-slow 2.2s linear infinite;
-  display: inline-block;
-}
-
-.pay-info {
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  font-weight: 700;
-  font-size: 14px;
-  margin-top: 10px;
-}
-.pay-qr {
-  width: 100%;
-  max-width: 260px;
-  display: block;
-  margin: 12px auto 0;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--line);
-}
-
-#slip-input { margin-top: 4px; }
-.slip-preview img {
-  max-width: 160px;
-  border-radius: var(--radius-sm);
-  margin-top: 10px;
-  border: 1.5px solid var(--line);
-}
-
-/* ---------- confirmation ---------- */
-.confirm-wrap {
-  margin: auto;
-  text-align: center;
-  padding: 30px;
-}
-.confirm-badge { font-size: 52px; margin-bottom: 10px; }
-.confirm-wrap h2 { font-size: 26px; margin-bottom: 8px; }
-.confirm-wrap p { color: var(--ink-soft); margin-bottom: 22px; }
-
-/* ---------- toast ---------- */
-.toast {
-  position: fixed;
-  top: 20px;
-  left: 16px;
-  right: 16px;
-  background: var(--success);
-  color: #fff;
-  padding: 13px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 700;
-  text-align: center;
-  z-index: 50;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-}
-.toast.hidden { display: none; }
-.toast.toast-error {
-  background: var(--red);
-}
-
-@keyframes flash-border {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 48, 42, 0); }
-  25%, 75% { box-shadow: 0 0 0 4px rgba(232, 48, 42, 0.55); }
-}
-.flash-invalid {
-  animation: flash-border 0.5s ease-in-out 2;
-  border-color: var(--red) !important;
-}
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

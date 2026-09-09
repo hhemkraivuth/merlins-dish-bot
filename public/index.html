@@ -51,6 +51,29 @@
     <h2>Your cart</h2>
   </header>
   <main id="cart-lines" class="cart-lines"></main>
+
+  <section class="field-group">
+    <label for="cart-name-input">Name</label>
+    <input type="text" id="cart-name-input" class="text-input" placeholder="Your name" />
+  </section>
+
+  <section class="field-group">
+    <label for="cart-phone-input">Contact number</label>
+    <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
+  </section>
+
+  <section id="reward-banner" class="reward-banner hidden">
+    <label class="reward-toggle-row">
+      <input type="checkbox" id="redeem-pasta-checkbox" />
+      <span>🎉 You have a free pasta! Use it on this order?</span>
+    </label>
+    <div id="redeem-pasta-options" class="pill-toggle hidden">
+      <button type="button" class="pill active" data-redeem-dish="ragu">Noir Ragu</button>
+      <button type="button" class="pill" data-redeem-dish="bolognese">Polished Pork Bolognese</button>
+    </div>
+    <p id="redeem-pasta-hint" class="hint hidden">Add this dish to your cart to apply the reward -- noodle upgrades (Tubetti/Radiatori) still carry their usual small surcharge.</p>
+  </section>
+
   <div class="bottom-actions">
     <div class="total-row">
       <span>Total</span>
@@ -139,16 +162,6 @@
       <label for="slip-input">Payment slip</label>
       <input type="file" id="slip-input" accept="image/*" />
       <div id="slip-preview" class="slip-preview hidden"></div>
-    </section>
-
-    <section class="field-group">
-      <label for="name-input">Name</label>
-      <input type="text" id="name-input" class="text-input" placeholder="Your name" />
-    </section>
-
-    <section class="field-group">
-      <label for="phone-input">Contact number</label>
-      <input type="tel" id="phone-input" class="text-input" placeholder="For the delivery" />
     </section>
 
     <button id="place-order-btn" class="btn btn-primary btn-block" disabled>Place order</button>

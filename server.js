@@ -33,7 +33,16 @@ const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
 const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
 const { logOrder, logMenuTap } = require("./sheetLogger");
-const { getCustomer, recordOrder, normalisePhone, REWARD_EVERY_N_ORDERS } = require("./customers");
+const {
+  getCustomer,
+  recordOrder,
+  normalisePhone,
+  getRewardConfig,
+  setRewardConfig,
+  parseRewardChangeCommand,
+  TIER_LOW,
+  TIER_HIGH,
+} = require("./customers");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -1619,23 +1628,28 @@ app.get("/api/delivery-fee/:requestId", (req, res) => {
 });
 
 // Called from the cart screen once the customer has typed enough digits.
-// Never trusted for pricing -- only tells the browser whether to show the
-// "you have a free pasta" toggle. Eligibility is re-checked server-side
-// again in /api/place-order before any discount is actually applied.
+// Never trusted for pricing -- only tells the browser what banner/copy to
+// show. Eligibility is re-checked server-side again in /api/place-order
+// before any discount is actually applied.
 app.get("/api/customer-lookup", async (req, res) => {
   const phone = normalisePhone(req.query.phone || "");
+  const rewardConfig = await getRewardConfig();
   if (!phone) {
-    return res.json({ found: false, freePastaAvailable: 0 });
+    return res.json({ found: false, orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
   }
   const customer = await getCustomer(phone);
   if (!customer) {
-    return res.json({ found: false, freePastaAvailable: 0 });
+    return res.json({ found: false, orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
   }
   res.json({
     found: customer.found,
     name: customer.name,
     orderCount: customer.orderCount,
-    freePastaAvailable: customer.freePastaAvailable,
+    canRedeemLow: customer.canRedeemLow,
+    canRedeemHigh: customer.canRedeemHigh,
+    ordersToLow: customer.ordersToLow,
+    ordersToHigh: customer.ordersToHigh,
+    rewardConfig,
   });
 });
 
@@ -1664,24 +1678,26 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     return res.status(400).json({ success: false, error: "MISSING_INFO", message: "Please add a note for the rider (unit number or where to deliver)." });
   }
 
-  // Free-pasta redemption: re-check eligibility server-side, never trust
-  // a flag from the browser. Max 1 redemption per checkout, applied to
-  // the FIRST matching Ragu/Bolognese line only -- base plate price is
-  // zeroed, any Tubetti/Radiatori noodle surcharge still applies.
-  let redeemPasta = null; // will hold { dish: 'ragu'|'bolognese' } if valid
+  // Reward redemption: re-check eligibility server-side, never trust a
+  // flag from the browser. Max 1 redemption per checkout. What each tier
+  // actually rewards comes from the Reward Config sheet, not hardcoded,
+  // so Lily can change it any time without touching this file.
+  let redeemTier = null; // 5 | 10 | null
   let redeemApplied = false;
-  if (order.redeemPasta && order.redeemPasta.dish) {
+  const rewardConfig = await getRewardConfig();
+  if (order.redeemTier === TIER_LOW || order.redeemTier === TIER_HIGH) {
     const requestedPhone = normalisePhone(order.phone);
     const customer = requestedPhone ? await getCustomer(requestedPhone) : null;
-    if (customer && customer.freePastaAvailable >= 1) {
-      if (order.redeemPasta.dish === "ragu" || order.redeemPasta.dish === "bolognese") {
-        redeemPasta = order.redeemPasta;
-      }
-    }
-    // If eligibility fails (e.g. they lied, or redeemed it elsewhere in
-    // the meantime), we simply don't apply it -- order still goes through
-    // at full price rather than failing the checkout outright.
+    const eligible =
+      customer &&
+      ((order.redeemTier === TIER_LOW && customer.canRedeemLow) ||
+        (order.redeemTier === TIER_HIGH && customer.canRedeemHigh));
+    if (eligible) redeemTier = order.redeemTier;
+    // If eligibility fails (e.g. they lied, or someone else redeemed it
+    // for this phone in the meantime), we simply don't apply it -- order
+    // still goes through at full price rather than failing the checkout.
   }
+  const activeReward = redeemTier === TIER_LOW ? rewardConfig.low : redeemTier === TIER_HIGH ? rewardConfig.high : null;
 
   // Recompute everything server-side from menu.js -- never trust prices
   // or availability sent by the browser.
@@ -1711,38 +1727,56 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         if (dish.requiresPasta) price += pasta.mandatorySurcharge || 0;
       }
     }
+
+    // Does this line qualify for the active reward? A fixed-dish reward
+    // (menuItemId set) matches only that exact dish. A value-cap reward
+    // (maxValue set) matches the first line at or under that base price
+    // -- reqItem.redeemThis lets the customer point at a specific line
+    // when more than one dish would qualify.
     let isRedemption = false;
-    if (redeemPasta && !redeemApplied && dish.id === redeemPasta.dish) {
-      // Zero out only the base dish price for ONE portion. Noodle surcharge
-      // (already folded into `price` above) still applies. If qty > 1,
-      // only the first portion's base price is free -- split the line so
-      // the discount doesn't accidentally apply to every portion ordered.
-      const surcharge = price - dish.price; // isolates just the noodle add-on
-      if (reqItem.qty > 1) {
-        lines.push({ itemId: dish.id, name: `${name} (free pasta reward)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
-        lines.push({ itemId: dish.id, name, price, qty: reqItem.qty - 1, pastaChoice: reqItem.pastaChoice || null });
-      } else {
-        lines.push({ itemId: dish.id, name: `${name} (free pasta reward)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+    if (activeReward && !redeemApplied) {
+      const fixedMatch = activeReward.menuItemId && dish.id === activeReward.menuItemId;
+      const valueMatch =
+        !activeReward.menuItemId &&
+        activeReward.maxValue != null &&
+        dish.price <= activeReward.maxValue &&
+        (reqItem.redeemThis || order.items.filter((i) => {
+          const d = MENU.find((m) => m.id === i.itemId);
+          return d && d.price <= activeReward.maxValue;
+        }).length === 1);
+      if (fixedMatch || valueMatch) {
+        // Zero out only the base dish price for ONE portion. Any noodle
+        // surcharge (already folded into `price` above) still applies.
+        // If qty > 1, only the first portion's base price is free.
+        const surcharge = price - dish.price;
+        if (reqItem.qty > 1) {
+          lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+          lines.push({ itemId: dish.id, name, price, qty: reqItem.qty - 1, pastaChoice: reqItem.pastaChoice || null });
+        } else {
+          lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+        }
+        redeemApplied = true;
+        isRedemption = true;
       }
-      redeemApplied = true;
-      isRedemption = true;
     }
     if (!isRedemption) {
       lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
     }
   }
 
-  // If a redemption was requested but the requested dish wasn't actually
-  // in the cart, don't silently charge full price without saying why.
-  if (redeemPasta && !redeemApplied) {
+  // If a redemption was requested but nothing in the cart actually
+  // qualified, don't silently charge full price without saying why.
+  if (activeReward && !redeemApplied) {
+    const label = activeReward.menuItemId ? activeReward.itemName : `a dish up to ฿${activeReward.maxValue}`;
     return res.status(400).json({
       success: false,
       error: "REDEMPTION_ITEM_MISSING",
-      message: `Add ${redeemPasta.dish === "ragu" ? "Noir Ragu + Pasta" : "Polished Pork Bolognese + Pasta"} to your cart to use your free pasta reward.`,
+      message: `Add ${label} to your cart to use your reward.`,
     });
   }
 
   const foodTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+
 
   // Never trust a fee number from the browser. For >5km orders, look up
   // what Merlin's Dish actually confirmed via the pending request id. For
@@ -1878,14 +1912,17 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     phone: order.phone,
     name: order.name,
     lineUserId: order.lineUserId,
-    redeemed: redeemApplied,
+    redeemedTier: redeemApplied ? redeemTier : null,
   });
 
-  if (loyaltyResult && loyaltyResult.justHitMilestone && target) {
+  if (loyaltyResult && loyaltyResult.resetHappened && target) {
+    const rewardLabel = activeReward ? activeReward.itemName : "their reward";
     try {
       await client.pushMessage(target, {
         type: "text",
-        text: `🎉 ${order.name} just placed their ${loyaltyResult.orderCount}${ordinalSuffix(loyaltyResult.orderCount)} order, free pasta reward earned!`,
+        text: redeemApplied
+          ? `🎉 ${order.name} just redeemed ${rewardLabel}. Back to a clean slate for their next round.`
+          : `🎉 ${order.name} just placed their 10th order and earned ${rewardLabel}, on the house.`,
       });
     } catch (err) {
       console.error("Failed to push milestone notification:", err.message);
@@ -2016,6 +2053,35 @@ async function handleEvent(event) {
 
   if (event.type === "message" && event.message.type === "text") {
     const text = event.message.text.trim();
+
+    // Anyone in your private group can change what the 5-point or
+    // 10-point loyalty reward is by typing something like "change the
+    // 5 point reward to bacon steak" -- this is a convenience layer over
+    // the Reward Config sheet tab, which stays the source of truth and
+    // can always be edited directly instead. The bot always confirms
+    // what it changed (or says it couldn't understand), so a misfire
+    // in a busy group chat gets caught immediately rather than silently
+    // applying to the next customer who redeems.
+    if (event.source.type === "group" && event.source.groupId === process.env.LINE_INTERNAL_TARGET_ID) {
+      const parsed = parseRewardChangeCommand(text, MENU);
+      if (parsed) {
+        if (parsed.unmatchedName) {
+          await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: `Couldn't find "${parsed.unmatchedName}" on the menu. Try the exact dish name, or edit the Reward Config tab directly.`,
+          });
+          return;
+        }
+        const ok = await setRewardConfig(parsed.tier, parsed.item);
+        await client.replyMessage(event.replyToken, {
+          type: "text",
+          text: ok
+            ? `Done. The ${parsed.tier}-point reward is now ${typeof parsed.item === "number" ? `any dish up to ฿${parsed.item}` : parsed.item.name}.`
+            : `Couldn't update the Reward Config sheet just now. Try again in a moment, or edit it directly.`,
+        });
+        return;
+      }
+    }
 
     // A bare number typed in your private group is treated as the fee
     // reply for the oldest still-waiting delivery-fee request -- this

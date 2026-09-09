@@ -402,6 +402,9 @@ button, input, textarea, select {
 }
 #redeem-pasta-options { margin-top: 12px; }
 #redeem-pasta-hint { margin-top: 10px; }
+#redeem-dish-select { margin-top: 12px; }
+#redeem-pasta-select { margin-top: 10px; }
+#redeem-surcharge-note { margin-top: 6px; }
 
 .pill-toggle { display: flex; gap: 8px; }
 .pill {

@@ -140,13 +140,14 @@ button, input, textarea, select {
 
 .direct-order-banner {
   margin: 0 16px 12px;
-  padding: 12px 14px;
-  background: var(--card);
-  border: 1.5px solid var(--gold);
+  padding: 14px;
+  background: var(--cream-deep);
+  border: none;
+  border-left: 4px solid var(--gold);
   border-radius: var(--radius-sm);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--ink);
   font-weight: 600;
 }
 

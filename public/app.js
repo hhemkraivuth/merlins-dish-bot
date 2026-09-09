@@ -41,6 +41,13 @@ let addressNote = "";
 let paymentMethod = "bank";
 let slipFile = null;
 
+// ---------- loyalty / free pasta reward ----------
+let freePastaAvailable = 0; // from the last successful /api/customer-lookup
+let redeemPastaChosen = false; // customer ticked the reward checkbox
+let redeemPastaDish = "ragu"; // "ragu" | "bolognese"
+let lookupDebounceTimer = null;
+let lastLookedUpPhone = "";
+
 // ---------- screen navigation ----------
 
 function showScreen(id) {
@@ -313,6 +320,62 @@ function cartTotal() {
   return cartLines().reduce((sum, l) => sum + l.price * l.qty, 0);
 }
 
+// ---------- loyalty lookup ----------
+
+function digitsOnly(str) {
+  return (str || "").replace(/\D/g, "");
+}
+
+function scheduleCustomerLookup() {
+  clearTimeout(lookupDebounceTimer);
+  lookupDebounceTimer = setTimeout(runCustomerLookup, 500);
+}
+
+async function runCustomerLookup() {
+  const phone = document.getElementById("cart-phone-input").value.trim();
+  const digits = digitsOnly(phone);
+  if (digits.length < 8) {
+    freePastaAvailable = 0;
+    renderRewardBanner();
+    return;
+  }
+  if (phone === lastLookedUpPhone) return;
+  lastLookedUpPhone = phone;
+
+  try {
+    const res = await fetch(`/api/customer-lookup?phone=${encodeURIComponent(phone)}`);
+    const data = await res.json();
+    freePastaAvailable = data.freePastaAvailable || 0;
+  } catch (err) {
+    console.error("Customer lookup failed:", err);
+    freePastaAvailable = 0;
+  }
+  renderRewardBanner();
+}
+
+function renderRewardBanner() {
+  const banner = document.getElementById("reward-banner");
+  const checkbox = document.getElementById("redeem-pasta-checkbox");
+  if (freePastaAvailable >= 1) {
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+    checkbox.checked = false;
+    redeemPastaChosen = false;
+  }
+  renderRedeemOptions();
+}
+
+function renderRedeemOptions() {
+  const optionsWrap = document.getElementById("redeem-pasta-options");
+  const hint = document.getElementById("redeem-pasta-hint");
+  optionsWrap.classList.toggle("hidden", !redeemPastaChosen);
+  hint.classList.toggle("hidden", !redeemPastaChosen);
+  optionsWrap.querySelectorAll("[data-redeem-dish]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.redeemDish === redeemPastaDish);
+  });
+}
+
 function updateCartBar() {
   const bar = document.getElementById("cart-bar");
   const lines = cartLines();
@@ -373,7 +436,15 @@ function renderCartScreen() {
     });
   }
   document.getElementById("cart-screen-total").textContent = `฿${cartTotal()}`;
-  document.getElementById("checkout-btn").disabled = lines.length === 0;
+  updateCheckoutEnabled();
+}
+
+function updateCheckoutEnabled() {
+  const name = document.getElementById("cart-name-input").value.trim();
+  const phone = document.getElementById("cart-phone-input").value.trim();
+  const hasItems = cartLines().length > 0;
+  const hasContactInfo = name.length >= 2 && digitsOnly(phone).length >= 8;
+  document.getElementById("checkout-btn").disabled = !(hasItems && hasContactInfo);
 }
 
 // ---------- delivery details screen ----------
@@ -559,6 +630,9 @@ function renderReviewScreen() {
   linesWrap.innerHTML = cartLines()
     .map((l) => `<div class="summary-line"><span>${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
     .join("");
+  if (isRedeemingPasta()) {
+    linesWrap.innerHTML += `<div class="summary-line"><span>🎉 Free pasta reward (${redeemPastaDish === "ragu" ? "Noir Ragu" : "Polished Pork Bolognese"})</span><span>Applied at checkout</span></div>`;
+  }
   const foodTotal = cartTotal();
   const grandTotal = foodTotal + confirmedDeliveryFee;
   document.getElementById("review-food-total").textContent = `฿${foodTotal}`;
@@ -578,15 +652,23 @@ function renderReviewScreen() {
   updatePlaceOrderEnabled();
 }
 
+// True only if the customer ticked the reward checkbox AND actually has
+// the redeemed dish in their cart -- the server re-validates this again
+// regardless, this is just for showing the line on the review screen.
+function isRedeemingPasta() {
+  if (!redeemPastaChosen || freePastaAvailable < 1) return false;
+  return cartLines().some((l) => l.itemId === redeemPastaDish);
+}
+
 function applyPaymentMethodUI() {
   document.getElementById("pay-bank-info").classList.toggle("hidden", paymentMethod !== "bank");
   document.getElementById("pay-qr-image").classList.toggle("hidden", paymentMethod !== "qr");
 }
 
 function updatePlaceOrderEnabled() {
-  const name = document.getElementById("name-input").value.trim();
-  const phone = document.getElementById("phone-input").value.trim();
-  const ok = !!slipFile && name.length >= 2 && phone.replace(/\D/g, "").length >= 8;
+  const name = document.getElementById("cart-name-input").value.trim();
+  const phone = document.getElementById("cart-phone-input").value.trim();
+  const ok = !!slipFile && name.length >= 2 && digitsOnly(phone).length >= 8;
   document.getElementById("place-order-btn").disabled = !ok;
 }
 
@@ -609,9 +691,10 @@ async function submitOrder() {
     needsManualFee,
     feeRequestId: needsManualFee ? feeRequestId : null,
     distanceKm,
-    name: document.getElementById("name-input").value.trim(),
-    phone: document.getElementById("phone-input").value.trim(),
+    name: document.getElementById("cart-name-input").value.trim(),
+    phone: document.getElementById("cart-phone-input").value.trim(),
     paymentMethod,
+    redeemPasta: isRedeemingPasta() ? { dish: redeemPastaDish } : null,
   };
 
   const form = new FormData();
@@ -653,11 +736,17 @@ function resetOrder() {
   document.getElementById("schedule-text").value = "";
   document.getElementById("manual-address").value = "";
   document.getElementById("address-note").value = "";
-  document.getElementById("name-input").value = "";
-  document.getElementById("phone-input").value = "";
+  document.getElementById("cart-name-input").value = "";
+  document.getElementById("cart-phone-input").value = "";
   document.getElementById("slip-input").value = "";
   document.getElementById("slip-preview").classList.add("hidden");
   document.getElementById("location-result").classList.add("hidden");
+  freePastaAvailable = 0;
+  redeemPastaChosen = false;
+  redeemPastaDish = "ragu";
+  lastLookedUpPhone = "";
+  document.getElementById("redeem-pasta-checkbox").checked = false;
+  document.getElementById("reward-banner").classList.add("hidden");
   updateCartBar();
   renderItemList();
   showScreen("menu-screen");
@@ -678,6 +767,23 @@ function wireStaticEvents() {
   document.getElementById("checkout-btn").addEventListener("click", () => {
     showScreen("delivery-screen");
     ensureMapInitialized();
+  });
+
+  document.getElementById("cart-name-input").addEventListener("input", updateCheckoutEnabled);
+  document.getElementById("cart-phone-input").addEventListener("input", () => {
+    updateCheckoutEnabled();
+    scheduleCustomerLookup();
+  });
+
+  document.getElementById("redeem-pasta-checkbox").addEventListener("change", (e) => {
+    redeemPastaChosen = e.target.checked;
+    renderRedeemOptions();
+  });
+  document.querySelectorAll("[data-redeem-dish]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      redeemPastaDish = btn.dataset.redeemDish;
+      renderRedeemOptions();
+    });
   });
 
   document.querySelectorAll("[data-timing]").forEach((btn) => {
@@ -755,8 +861,8 @@ function wireStaticEvents() {
     updatePlaceOrderEnabled();
   });
 
-  document.getElementById("name-input").addEventListener("input", updatePlaceOrderEnabled);
-  document.getElementById("phone-input").addEventListener("input", updatePlaceOrderEnabled);
+  // Name/phone are now collected on the cart screen (see cart-name-input /
+  // cart-phone-input wiring above), not here on the review screen.
 
   document.getElementById("place-order-btn").addEventListener("click", submitOrder);
   document.getElementById("new-order-btn").addEventListener("click", resetOrder);

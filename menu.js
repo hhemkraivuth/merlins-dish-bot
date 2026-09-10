@@ -34,6 +34,7 @@ const CATEGORIES = [
   { id: "pasta", label: "🍝 Pasta" },
   { id: "soup", label: "🥣 Soup" },
   { id: "extras", label: "➕ Extras" },
+  { id: "drinks", label: "🥤 Drinks" },
 ];
 
 const MENU = [
@@ -64,6 +65,22 @@ const MENU = [
   { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg" },
   { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png" },
   { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg" },
+
+  // -- Drinks: prices pulled from the Menu Summary tab's Drinks table
+  //    (direct-order selling price, not the Grab-marked-up price). Two
+  //    drinks in that sheet (MaisonPerrier Pineapple&Mango, Old Jamaica
+  //    Ginger beer) have no selling price set and are left out for now --
+  //    add them here the same way once they're priced and back in stock.
+  { id: "drink_maisonperrier_forever_lemon", name: "MaisonPerrier - Forever Lemon", price: 68, category: "drinks", image: null },
+  { id: "drink_enziero_golden_apple_yuzu", name: "EN Ziero - Golden Apple & Yuzu", price: 38, category: "drinks", image: null },
+  { id: "drink_juza_sparkling", name: "Juza - Sparkling Orange, Lemon", price: 48, category: "drinks", image: null },
+  { id: "drink_coke_original", name: "Coke Original", price: 38, category: "drinks", image: null },
+  { id: "drink_coke_zero", name: "Coke Zero Zero", price: 38, category: "drinks", image: null },
+  { id: "drink_eden_green_apple", name: "Eden - Green Apple Sparkling", price: 38, category: "drinks", image: null },
+  { id: "drink_prebo_classic_muscat", name: "Prebo Pop - Classic Muscat", price: 48, category: "drinks", image: null },
+  { id: "drink_prebo_cream_cloud", name: "Prebo Pop - Cream Cloud", price: 48, category: "drinks", image: null },
+  { id: "drink_aw_rootbeer", name: "A&W Root Beer", price: 38, category: "drinks", image: null },
+  { id: "drink_sourhours_ginger_lemon", name: "Sour Hours - Ginger Lemon", price: 58, category: "drinks", image: null },
 ];
 
 // Pasta/noodle types. Used two ways:

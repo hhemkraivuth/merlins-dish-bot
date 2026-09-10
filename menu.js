@@ -70,16 +70,16 @@ const MENU = [
   //    drinks in that sheet (MaisonPerrier Pineapple&Mango, Old Jamaica
   //    Ginger beer) have no selling price set and are left out for now --
   //    add them here the same way once they're priced and back in stock.
-  { id: "drink_maisonperrier_forever_lemon", name: "MaisonPerrier - Forever Lemon", price: 68, category: "drinks", image: null },
-  { id: "drink_enziero_golden_apple_yuzu", name: "EN Ziero - Golden Apple & Yuzu", price: 38, category: "drinks", image: null },
-  { id: "drink_juza_sparkling", name: "Juza - Sparkling Orange, Lemon", price: 48, category: "drinks", image: null },
+  { id: "drink_maisonperrier_forever_lemon", name: "MaisonPerrier - Forever Lemon", price: 68, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789041104/MaisonPerrier_ForeverLemon.heic" },
+  { id: "drink_enziero_golden_apple_yuzu", name: "EN Ziero - Golden Apple & Yuzu", price: 38, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789041110/ENZiero_GoldenAppleandYuzu.heic" },
+  { id: "drink_juza_sparkling", name: "Juza - Sparkling Orange, Lemon", price: 48, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789041103/Juza_SparklingOrangeLemon.heic" },
   { id: "drink_coke_original", name: "Coke Original", price: 38, category: "drinks", image: null },
-  { id: "drink_coke_zero", name: "Coke Zero Zero", price: 38, category: "drinks", image: null },
-  { id: "drink_eden_green_apple", name: "Eden - Green Apple Sparkling", price: 38, category: "drinks", image: null },
-  { id: "drink_prebo_classic_muscat", name: "Prebo Pop - Classic Muscat", price: 48, category: "drinks", image: null },
-  { id: "drink_prebo_cream_cloud", name: "Prebo Pop - Cream Cloud", price: 48, category: "drinks", image: null },
-  { id: "drink_aw_rootbeer", name: "A&W Root Beer", price: 38, category: "drinks", image: null },
-  { id: "drink_sourhours_ginger_lemon", name: "Sour Hours - Ginger Lemon", price: 58, category: "drinks", image: null },
+  { id: "drink_coke_zero", name: "Coke Zero Zero", price: 38, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789041103/Juza_SparklingOrangeLemon.heic" },
+  { id: "drink_eden_green_apple", name: "Eden - Green Apple Sparkling", price: 38, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789043475/EdenGreen_AppleSparkling.heic" },
+  { id: "drink_prebo_classic_muscat", name: "Prebo Pop - Classic Muscat", price: 48, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789043474/PreboPop_ClassicMuscat.heic" },
+  { id: "drink_prebo_cream_cloud", name: "Prebo Pop - Cream Cloud", price: 48, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789041102/prebo_creamcloud.jpg" },
+  { id: "drink_aw_rootbeer", name: "A&W Root Beer", price: 38, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789043474/AW_RootBeer.heic" },
+  { id: "drink_sourhours_ginger_lemon", name: "Sour Hours - Ginger Lemon", price: 58, category: "drinks", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1789043474/SourHours_GingerLemon.heic" },
 ];
 
 // Pasta/noodle types. Used two ways:

@@ -213,6 +213,7 @@ function buildItemCard(dish) {
       ${img}
       <div class="item-body">
         <h3>${dish.name}</h3>
+        ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
         <p class="item-price">฿${dish.price}</p>
         ${stockNote}
         <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
@@ -286,6 +287,7 @@ function buildItemCard(dish) {
       ${img}
       <div class="item-body">
         <h3>${dish.name}</h3>
+        ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
         <p class="item-price">฿${dish.price}</p>
         ${stockNote}
         <div class="stepper" data-item="${dish.id}">
@@ -1008,25 +1010,27 @@ function wireStaticEvents() {
   });
 
   document.getElementById("view-cart-btn").addEventListener("click", () => {
-    if (shouldShowUpsell()) {
-      renderUpsellScreen();
-      showScreen("upsell-screen");
-    } else {
-      renderCartScreen();
-      showScreen("cart-screen");
-    }
-  });
-
-  document.getElementById("upsell-skip-btn").addEventListener("click", () => {
-    renderCartScreen();
-    showScreen("cart-screen");
-  });
-  document.getElementById("upsell-continue-btn").addEventListener("click", () => {
     renderCartScreen();
     showScreen("cart-screen");
   });
 
   document.getElementById("checkout-btn").addEventListener("click", () => {
+    if (shouldShowUpsell()) {
+      renderUpsellScreen();
+      showScreen("upsell-screen");
+    } else {
+      showScreen("delivery-screen");
+      ensureMapInitialized();
+    }
+  });
+
+  document.getElementById("upsell-skip-btn").addEventListener("click", () => {
+    renderCartScreen();
+    showScreen("delivery-screen");
+    ensureMapInitialized();
+  });
+  document.getElementById("upsell-continue-btn").addEventListener("click", () => {
+    renderCartScreen();
     showScreen("delivery-screen");
     ensureMapInitialized();
   });

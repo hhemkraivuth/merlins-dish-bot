@@ -42,10 +42,8 @@ const MENU = [
   { id: "bacon_steak", name: "Bacon Steak", price: 95, category: "spotlight", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/BaconSteak.png", description: "Tavern-Style Bacon Steak. A hearty 100g cut of pork belly, cured for a deeply savoury, juicy bite. A classic European tavern tradition." },
 
   // -- Main Dishes --
-  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png", description: "Signature 8-hour slow-braised Beef Bourguignon, using AU beef with red wine for a deep, meltingly tender finish. // Recommend pairing with Tubetti." },
-  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png", description: "Signature 8-hour slow-braised Beef Bourguignon, using AU beef with red wine for a deep, meltingly tender finish. // Recommend pairing with Tubetti." },
-  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png", description: "Traditional Irish-style stew with AU beef slow-cooked for 8 hours in a deep, aromatic stout reduction. // Recommend pairing with Tubetti." },
-  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png", description: "Traditional Irish-style stew with AU beef slow-cooked for 8 hours in a deep, aromatic stout reduction. // Recommend pairing with Tubetti." },
+  { id: "rws", name: "Red Wine Beef Stew", price: 285, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png", requiresSize: true, description: "Signature 8-hour slow-braised Beef Bourguignon, using AU beef with red wine for a deep, meltingly tender finish. // Recommend pairing with Tubetti." },
+  { id: "dbs", name: "Dark Beer Stew", price: 265, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png", requiresSize: true, description: "Traditional Irish-style stew with AU beef slow-cooked for 8 hours in a deep, aromatic stout reduction. // Recommend pairing with Tubetti." },
   { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/tpb.png", description: "Slow-braised Tuscan pork. Meltingly tender, juicy pork chunks simmered in a rich tomato base with premium balsamic vinegar, hearty carrot batonnets, and mushrooms. // Recommend pairing with Lumache." },
 
   // -- Pasta (bundled dishes, pasta choice is mandatory and mostly free,
@@ -63,9 +61,10 @@ const MENU = [
   { id: "extra_tubetti", name: "Tubetti (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/tubetti.jpg", description: "Mini tubes, perfect for stews and soups" },
   { id: "extra_radiatori", name: "Radiatori (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg", description: "Distinctive ruffles, ultimate sauce hold" },
   { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", description: "Large ridged tubes, built for every rich sauce" },
+  { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", description: "Snail shells, maximum sauce inside" },
   { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", description: "Flat, silky strands. Perfect coat" },
   { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", description: "The timeless, classic long strand" },
-  { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", description: "Snail shells, maximum sauce inside" },
+  
 
   // -- Drinks: prices pulled from the Menu Summary tab's Drinks table
   //    (direct-order selling price, not the Grab-marked-up price). Two
@@ -98,8 +97,20 @@ const PASTA_OPTIONS = [
   { id: "tubetti", name: "Tubetti", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", mandatorySurcharge: 5, extraPrice: 45 },
   { id: "radiatori", name: "Radiatori", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg", mandatorySurcharge: 5, extraPrice: 45 },
   { id: "rigatoni", name: "Rigatoni", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", mandatorySurcharge: 0, extraPrice: 40 },
+  { id: "lumache", name: "Lumache", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", mandatorySurcharge: 0, extraPrice: 40 },
   { id: "linguine", name: "Linguine", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", mandatorySurcharge: 0, extraPrice: 40 },
   { id: "spaghetti", name: "Spaghetti", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", mandatorySurcharge: 0, extraPrice: 40 },
+  
 ];
 
-module.exports = { MENU, CATEGORIES, PASTA_OPTIONS };
+// Serving size choices, used for dishes marked "requiresSize: true" above
+// (Red Wine Beef Stew, Dark Beer Stew). Mirrors the PASTA_OPTIONS pattern --
+// "Regular" is the base price already on the dish, "Large" adds
+// mandatorySurcharge on top. Change the surcharge here if the price gap
+// between sizes ever changes.
+const SIZE_OPTIONS = [
+  { id: "regular", name: "Regular", mandatorySurcharge: 0 },
+  { id: "large", name: "Large", mandatorySurcharge: 100 },
+];
+
+module.exports = { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS };

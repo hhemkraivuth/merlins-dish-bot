@@ -112,7 +112,17 @@ async function init() {
   renderCategoryTabs();
   renderItemList();
   wireStaticEvents();
-  showScreen("menu-screen");
+  showDirectOrderScreen();
+}
+
+// Shown once per app open, as its own screen between the loading screen and
+// the menu -- closing it (X or the continue button) moves on to the menu
+// screen where ordering actually happens.
+function showDirectOrderScreen() {
+  showScreen("direct-order-screen");
+  const goToMenu = () => showScreen("menu-screen");
+  document.getElementById("direct-order-modal-close").addEventListener("click", goToMenu, { once: true });
+  document.getElementById("direct-order-modal-continue").addEventListener("click", goToMenu, { once: true });
 }
 
 // ---------- menu rendering ----------
@@ -213,9 +223,9 @@ function buildItemCard(dish) {
           ).join("")}
         </select>
         <div class="variant-row">
-          <div class="stepper local-stepper" data-qty="1">
+          <div class="stepper local-stepper" data-qty="0">
             <button type="button" class="minus">−</button>
-            <span class="qty">1</span>
+            <span class="qty">0</span>
             <button type="button" class="plus">+</button>
           </div>
           <button type="button" class="add-line-btn" disabled>Add</button>
@@ -228,16 +238,18 @@ function buildItemCard(dish) {
     const qtyEl = stepper.querySelector(".qty");
 
     const updateAddEnabled = () => {
-      addBtn.disabled = !dish.available || !select.value;
+      const qty = parseInt(stepper.dataset.qty, 10);
+      addBtn.disabled = !dish.available || !select.value || qty < 1;
     };
     select.addEventListener("change", updateAddEnabled);
 
     stepper.querySelector(".minus").addEventListener("click", () => {
       let n = parseInt(stepper.dataset.qty, 10);
-      if (n > 1) {
+      if (n > 0) {
         n -= 1;
         stepper.dataset.qty = n;
         qtyEl.textContent = n;
+        updateAddEnabled();
       }
     });
     stepper.querySelector(".plus").addEventListener("click", () => {
@@ -247,12 +259,14 @@ function buildItemCard(dish) {
         n += 1;
         stepper.dataset.qty = n;
         qtyEl.textContent = n;
+        updateAddEnabled();
       }
     });
 
     addBtn.addEventListener("click", () => {
       const pastaId = select.value;
       const qty = parseInt(stepper.dataset.qty, 10);
+      if (qty < 1) return;
       const pasta = PASTA_OPTIONS.find((p) => p.id === pastaId);
       const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
       const lineId = `${dish.id}:${pastaId}`;
@@ -260,8 +274,8 @@ function buildItemCard(dish) {
       addToCart(lineId, dish.id, name, dish.price + surcharge, qty, pastaId);
       showToast(`Added ${qty}x ${name}`);
       select.value = "";
-      stepper.dataset.qty = 1;
-      qtyEl.textContent = 1;
+      stepper.dataset.qty = 0;
+      qtyEl.textContent = 0;
       updateAddEnabled();
     });
 
@@ -659,9 +673,13 @@ function ensureMapInitialized() {
   try {
     const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
     map = L.map("map").setView(defaultCenter, 15);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    // Positron tiles (English/Latin place labels) instead of default OSM
+    // tiles, which render Thai-script labels for locations in Thailand --
+    // needed so foreign customers can read and pin their location correctly.
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
       maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      subdomains: "abcd",
     }).addTo(map);
     const redPinIcon = L.divIcon({
       className: "custom-pin-icon",

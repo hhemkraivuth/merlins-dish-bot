@@ -61,7 +61,7 @@ const MENU = [
   { id: "extra_tubetti", name: "Tubetti (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/tubetti.jpg", description: "Mini tubes, perfect for stews and soups" },
   { id: "extra_radiatori", name: "Radiatori (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg", description: "Distinctive ruffles, ultimate sauce hold" },
   { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", description: "Large ridged tubes, built for every rich sauce" },
-  { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", description: "Snail shells, maximum sauce inside" },
+  { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766580/lumache_v.jpg", description: "Snail shells, maximum sauce inside" },
   { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", description: "Flat, silky strands. Perfect coat" },
   { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", description: "The timeless, classic long strand" },
 

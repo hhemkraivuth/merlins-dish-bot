@@ -1655,6 +1655,7 @@ app.get("/api/menu", (req, res) => {
     price: d.price,
     category: d.category,
     image: d.image,
+    description: d.description || null,
     requiresPasta: !!d.requiresPasta,
     available: !isUnavailable(d.id),
     remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,

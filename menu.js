@@ -39,32 +39,33 @@ const CATEGORIES = [
 
 const MENU = [
   // -- Spotlight --
-  { id: "bacon_steak", name: "Bacon Steak", price: 95, category: "spotlight", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/BaconSteak.png" },
+  { id: "bacon_steak", name: "Bacon Steak", price: 95, category: "spotlight", image: "https://raw.githubusercontent.com/hhemkraivuth/merlins-dish-bot/main/images/BaconSteak.png", description: "Tavern-Style Bacon Steak. A hearty 100g cut of pork belly, cured for a deeply savoury, juicy bite. A classic European tavern tradition." },
 
   // -- Main Dishes --
-  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png" },
-  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png" },
-  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png" },
-  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png" },
-  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/tpb.png" },
+  { id: "rws_r", name: "Red Wine Beef Stew (Regular)", price: 285, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png", description: "Signature 8-hour slow-braised Beef Bourguignon, using AU beef with red wine for a deep, meltingly tender finish. // Recommend pairing with Tubetti." },
+  { id: "rws_l", name: "Red Wine Beef Stew (Large)", price: 385, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/rws.png", description: "Signature 8-hour slow-braised Beef Bourguignon, using AU beef with red wine for a deep, meltingly tender finish. // Recommend pairing with Tubetti." },
+  { id: "dbs_r", name: "Dark Beer Stew (Regular)", price: 265, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png", description: "Traditional Irish-style stew with AU beef slow-cooked for 8 hours in a deep, aromatic stout reduction. // Recommend pairing with Tubetti." },
+  { id: "dbs_l", name: "Dark Beer Stew (Large)", price: 365, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766601/dbs.png", description: "Traditional Irish-style stew with AU beef slow-cooked for 8 hours in a deep, aromatic stout reduction. // Recommend pairing with Tubetti." },
+  { id: "tuscan", name: "Tuscan Pork Braise", price: 245, category: "mains", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/tpb.png", description: "Slow-braised Tuscan pork. Meltingly tender, juicy pork chunks simmered in a rich tomato base with premium balsamic vinegar, hearty carrot batonnets, and mushrooms. // Recommend pairing with Lumache." },
 
   // -- Pasta (bundled dishes, pasta choice is mandatory and mostly free,
   //    Tubetti/Radiatori add a small surcharge -- see PASTA_OPTIONS below) --
-  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766603/ragu.png", requiresPasta: true },
-  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bolognese.png", requiresPasta: true },
+  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766603/ragu.png", requiresPasta: true, description: "Rich 6-hour slow-cooked AU beef pulled into a seamless, velvety ragu, topped with sharp Pecorino cheese. // Recommend pairing with Radiatori." },
+  { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bolognese.png", requiresPasta: true, description: "A deeply layered, slow-simmered homemade pork Bolognese infused with aromatic herbs for a smooth Italian finish. // Recommend pairing with Rigatoni." },
 
   // -- Soup --
-  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/cs.png" },
-  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bs.png" },
+  { id: "chicken_soup", name: "Creamy Chicken Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766600/cs.png", description: "A rich, velvety homemade cream soup crafted with tender chicken thighs and vegetables for the ultimate warm hug. // Recommend pairing with Lumache." },
+  { id: "pecorino_soup", name: "Pecorino & Broccoli Cream Soup", price: 165, category: "soup", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bs.png", description: "A sophisticated, warming cream soup driven by sharp Pecorino cheese, tender broccoli florets, and shredded chicken. // Recommend pairing with Lumache." },
 
   // -- Extras: pasta sold on its own, browsable any time (not tied to
   //    ordering a stew first). Prices come from PASTA_OPTIONS.extraPrice
   //    below, images are the same photos as the pasta picker uses.
-  { id: "extra_tubetti", name: "Tubetti (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/tubetti.jpg" },
-  { id: "extra_radiatori", name: "Radiatori (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg" },
-  { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg" },
-  { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png" },
-  { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg" },
+  { id: "extra_tubetti", name: "Tubetti (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/tubetti.jpg", description: "Mini tubes, perfect for stews and soups" },
+  { id: "extra_radiatori", name: "Radiatori (Extra)", price: 45, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/radiatori.jpg", description: "Distinctive ruffles, ultimate sauce hold" },
+  { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", description: "Large ridged tubes, built for every rich sauce" },
+  { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", description: "Flat, silky strands. Perfect coat" },
+  { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", description: "The timeless, classic long strand" },
+  { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", description: "Snail shells, maximum sauce inside" },
 
   // -- Drinks: prices pulled from the Menu Summary tab's Drinks table
   //    (direct-order selling price, not the Grab-marked-up price). Two

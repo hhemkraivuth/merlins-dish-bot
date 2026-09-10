@@ -635,3 +635,56 @@ button, input, textarea, select {
   line-height: 1.4;
   color: var(--ink);
 }
+
+/* ---------- Drinks/bacon upsell screen ---------- */
+.upsell-subtext {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 16px;
+}
+.upsell-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.upsell-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--cream);
+}
+.upsell-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.upsell-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.upsell-item-price {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.upsell-add-btn {
+  flex-shrink: 0;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.upsell-add-btn.added {
+  background: var(--success);
+}

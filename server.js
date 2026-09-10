@@ -1542,7 +1542,6 @@ async function handleFollow(userId, replyToken) {
       `🪄 Order with us here for lower menu prices, free delivery within 2km, and a flat rate up to 5km.\n` +
       `⚡ Ordering direct also means no middle man taking a cut, so more of what you pay goes straight into the kitchen, the ingredients, and keeping this a small, real thing.\n\n` +
       `Got a question instead? Just ask, we're happy to help.\n\n` +
-      `Both ways, same magic.\n\n` +
       `Comfort Food Made With Magic ✨\n` +
       `—Merlin's Dish`,
   });

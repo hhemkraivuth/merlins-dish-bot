@@ -31,7 +31,7 @@ const line = require("@line/bot-sdk");
 const axios = require("axios");
 const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
-const { MENU, CATEGORIES, PASTA_OPTIONS } = require("./menu");
+const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const { logOrder, logMenuTap } = require("./sheetLogger");
 const {
   getCustomer,
@@ -1657,10 +1657,11 @@ app.get("/api/menu", (req, res) => {
     image: d.image,
     description: d.description || null,
     requiresPasta: !!d.requiresPasta,
+    requiresSize: !!d.requiresSize,
     available: !isUnavailable(d.id),
     remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
   }));
-  res.json({ categories: CATEGORIES, items, pastaOptions: PASTA_OPTIONS });
+  res.json({ categories: CATEGORIES, items, pastaOptions: PASTA_OPTIONS, sizeOptions: SIZE_OPTIONS });
 });
 
 app.get("/api/shop-info", (req, res) => {
@@ -1839,6 +1840,13 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
       if (pasta) {
         name = `${dish.name} (${pasta.name})`;
         if (dish.requiresPasta) price += pasta.mandatorySurcharge || 0;
+      }
+    }
+    if (reqItem.sizeChoice) {
+      const size = SIZE_OPTIONS.find((s) => s.id === reqItem.sizeChoice);
+      if (size && dish.requiresSize) {
+        name = `${dish.name} (${size.name})`;
+        price += size.mandatorySurcharge || 0;
       }
     }
 

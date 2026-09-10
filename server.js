@@ -109,6 +109,15 @@ const soldOut = new Set();
 // false = force closed even during normal hours.
 let manualOpenOverride = null;
 
+// Scheduled closures, set via "close D/M" or "close D/M-D/M" in the private
+// group -- e.g. "close 11/9" or "close 11/9-13/9". D/M matches the DD/MM/YYYY
+// convention used elsewhere. Each entry is { start: "YYYY-MM-DD", end: "YYYY-MM-DD" }
+// (inclusive), assumed to be the current or next occurrence of that date in
+// Bangkok time. Checked automatically every time isShopOpen() runs -- no
+// need to remember to text "open" afterwards, it clears itself once the
+// date range has passed. Resets on restart, same as manualOpenOverride.
+let scheduledClosures = [];
+
 // Regular hours: Monday-Friday, 11:00-13:30 and 15:00-21:00, Bangkok time
 // (UTC+7, no DST). Closed during the 13:30-15:00 gap and on weekends by
 // default. This is the default until Lily changes it or texts a special
@@ -128,8 +137,69 @@ function bangkokNow() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
 }
 
+// "YYYY-MM-DD" for the given Bangkok-time Date, used to compare against
+// scheduledClosures without any timezone ambiguity.
+function bangkokDateStr(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Parses "D/M" or "D/M-D/M" into { start, end } YYYY-MM-DD strings, picking
+// the current year, or next year if that date has already passed this year
+// (so closing dates typed in December for January still land correctly).
+// Returns null if the text doesn't look like a valid date/range.
+function parseCloseDateRange(rest) {
+  const parts = rest.split("-").map((p) => p.trim());
+  if (parts.length !== 1 && parts.length !== 2) return null;
+
+  const parseOne = (str) => {
+    const m = str.match(/^(\d{1,2})\/(\d{1,2})$/);
+    if (!m) return null;
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const now = bangkokNow();
+    let year = now.getFullYear();
+    let candidate = new Date(year, month - 1, day);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (candidate < today) {
+      year += 1;
+      candidate = new Date(year, month - 1, day);
+    }
+    if (candidate.getMonth() !== month - 1 || candidate.getDate() !== day) return null; // e.g. 31/4
+    return bangkokDateStr(candidate);
+  };
+
+  const start = parseOne(parts[0]);
+  if (!start) return null;
+  const end = parts.length === 2 ? parseOne(parts[1]) : start;
+  if (!end) return null;
+  if (end < start) return null;
+  return { start, end };
+}
+
+function formatDateRangeForDisplay(range) {
+  const fmt = (str) => {
+    const [y, m, d] = str.split("-");
+    return `${d}/${m}/${y}`;
+  };
+  return range.start === range.end ? fmt(range.start) : `${fmt(range.start)}-${fmt(range.end)}`;
+}
+
+// True if today (Bangkok time) falls inside any scheduled closure. Also
+// prunes closures whose end date has already passed, so the list doesn't
+// grow forever and "status" doesn't show stale dates.
+function isScheduledClosureToday() {
+  const todayStr = bangkokDateStr(bangkokNow());
+  scheduledClosures = scheduledClosures.filter((r) => r.end >= todayStr);
+  return scheduledClosures.some((r) => todayStr >= r.start && todayStr <= r.end);
+}
+
 function isShopOpen() {
   if (manualOpenOverride !== null) return manualOpenOverride;
+  if (isScheduledClosureToday()) return false;
   const now = bangkokNow();
   const day = now.getDay(); // 0 = Sunday, 6 = Saturday
   if (day === 0 || day === 6) return false;
@@ -146,6 +216,9 @@ function isShopOpen() {
 function closedMessage() {
   if (manualOpenOverride === false) {
     return "Merlin's Dish is closed today. Sorry for the inconvenience, please check back another day! 🙏";
+  }
+  if (manualOpenOverride === null && isScheduledClosureToday()) {
+    return "Merlin's Dish is closed today for a scheduled day off. Sorry for the inconvenience, please check back another day! 🙏";
   }
   return `Merlin's Dish is open Monday-Friday, 11:00-13:30 and 15:00-21:00. We're closed right now, please come back during our hours! 🕐`;
 }
@@ -1308,6 +1381,23 @@ async function handleAdminCommand(replyToken, text) {
     });
     return true;
   }
+  if (lower.startsWith("close ")) {
+    const rest = text.trim().slice(6).trim();
+    const range = parseCloseDateRange(rest);
+    if (!range) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that date. Use "close D/M" for one day (e.g. "close 11/9") or "close D/M-D/M" for a range (e.g. "close 11/9-13/9").`,
+      });
+      return true;
+    }
+    scheduledClosures.push(range);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Got it, closed on ${formatDateRangeForDisplay(range)}. This clears itself automatically once the date has passed, no need to text "open" after. Text "status" anytime to see all scheduled closures.`,
+    });
+    return true;
+  }
   if (lower === "open" || lower === "open today" || lower === "open now") {
     manualOpenOverride = true;
     await client.replyMessage(replyToken, {
@@ -1327,9 +1417,14 @@ async function handleAdminCommand(replyToken, text) {
   if (lower === "status" || lower === "hours") {
     const override =
       manualOpenOverride === null ? "none (following normal schedule)" : manualOpenOverride ? "forced OPEN" : "forced CLOSED";
+    isScheduledClosureToday(); // prune any expired entries before displaying
+    const closuresText =
+      scheduledClosures.length === 0
+        ? "none"
+        : scheduledClosures.map((r) => formatDateRangeForDisplay(r)).join(", ");
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
+      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nScheduled closures: ${closuresText}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
     });
     return true;
   }

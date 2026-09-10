@@ -104,15 +104,23 @@ const soldOut = new Set();
 // in your private group (see handleAdminCommand). Resets on restart --
 // if you close and the bot redeploys, it'll come back to normal hours
 // automatically, so remember to re-close if that happens on a day off.
-// null = no override, follow the regular Mon-Fri 11:00-21:00 schedule.
+// null = no override, follow the regular Mon-Fri 11:00-13:30 / 15:00-21:00 schedule.
 // true = force open even outside/on a normally-closed day.
 // false = force closed even during normal hours.
 let manualOpenOverride = null;
 
-// Regular hours: Monday-Friday, 11:00-21:00, Bangkok time (UTC+7, no DST).
-// Weekends are closed by default. Change these two numbers if hours shift.
+// Regular hours: Monday-Friday, 11:00-13:30 and 15:00-21:00, Bangkok time
+// (UTC+7, no DST). Closed during the 13:30-15:00 gap and on weekends by
+// default. This is the default until Lily changes it or texts a special
+// closing date into the private LINE group.
 const OPEN_HOUR = 11;
+const OPEN_MINUTE = 0;
+const LUNCH_CLOSE_HOUR = 13;
+const LUNCH_CLOSE_MINUTE = 30;
+const DINNER_OPEN_HOUR = 15;
+const DINNER_OPEN_MINUTE = 0;
 const CLOSE_HOUR = 21;
+const CLOSE_MINUTE = 0;
 
 function bangkokNow() {
   // The server's own clock may be in any timezone (Railway defaults to
@@ -125,15 +133,21 @@ function isShopOpen() {
   const now = bangkokNow();
   const day = now.getDay(); // 0 = Sunday, 6 = Saturday
   if (day === 0 || day === 6) return false;
-  const hour = now.getHours();
-  return hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+  const minutesNow = now.getHours() * 60 + now.getMinutes();
+  const openStart = OPEN_HOUR * 60 + OPEN_MINUTE;
+  const lunchClose = LUNCH_CLOSE_HOUR * 60 + LUNCH_CLOSE_MINUTE;
+  const dinnerOpen = DINNER_OPEN_HOUR * 60 + DINNER_OPEN_MINUTE;
+  const closeEnd = CLOSE_HOUR * 60 + CLOSE_MINUTE;
+  const inLunchWindow = minutesNow >= openStart && minutesNow < lunchClose;
+  const inDinnerWindow = minutesNow >= dinnerOpen && minutesNow < closeEnd;
+  return inLunchWindow || inDinnerWindow;
 }
 
 function closedMessage() {
   if (manualOpenOverride === false) {
     return "Merlin's Dish is closed today. Sorry for the inconvenience, please check back another day! 🙏";
   }
-  return `Merlin's Dish is open Monday-Friday, 11:00-21:00. We're closed right now, please come back during our hours! 🕐`;
+  return `Merlin's Dish is open Monday-Friday, 11:00-13:30 and 15:00-21:00. We're closed right now, please come back during our hours! 🕐`;
 }
 
 // Pending ">5km" delivery-fee requests from the LIFF app, waiting on you
@@ -1298,7 +1312,7 @@ async function handleAdminCommand(replyToken, text) {
     manualOpenOverride = true;
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Shop marked OPEN, even outside your normal Mon-Fri 11:00-21:00 hours. Text "close" when you're done for the day, or "normal hours" to go back to following your regular schedule automatically.`,
+      text: `Shop marked OPEN, even outside your normal Mon-Fri 11:00-13:30 / 15:00-21:00 hours. Text "close" when you're done for the day, or "normal hours" to go back to following your regular schedule automatically.`,
     });
     return true;
   }
@@ -1306,7 +1320,7 @@ async function handleAdminCommand(replyToken, text) {
     manualOpenOverride = null;
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Back to following your normal Mon-Fri 11:00-21:00 hours automatically.\n(Currently: ${isShopOpen() ? "OPEN" : "CLOSED"})`,
+      text: `Back to following your normal Mon-Fri 11:00-13:30 / 15:00-21:00 hours automatically.\n(Currently: ${isShopOpen() ? "OPEN" : "CLOSED"})`,
     });
     return true;
   }
@@ -1315,7 +1329,7 @@ async function handleAdminCommand(replyToken, text) {
       manualOpenOverride === null ? "none (following normal schedule)" : manualOpenOverride ? "forced OPEN" : "forced CLOSED";
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
+      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
     });
     return true;
   }
@@ -1524,10 +1538,10 @@ async function handleFollow(userId, replyToken) {
     text:
       `Hello, welcome to the kitchen 🥘✨\n\n` +
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
-      `Ready to order? Just type "menu" anytime.\n\n` +
-      `⚡ Craving something now? Grab gets it to you fast, perfect for when hunger cannot wait.\n` +
-      `🪄 Got a little time? Order direct with us here for lower menu prices, free delivery within 2km, and a flat ฿50 for 2-5km.\n\n` +
-      `Got a question instead? Just ask, we're happy to help, this isn't only for ordering.\n\n` +
+      `Ready to order? Just tap Order Now in the menu below, or type "menu" anytime.\n\n` +
+      `🪄 Order with us here for lower menu prices, free delivery within 2km, and a flat rate up to 5km.\n` +
+      `⚡ Ordering direct also means no middle man taking a cut, so more of what you pay goes straight into the kitchen, the ingredients, and keeping this a small, real thing.\n\n` +
+      `Got a question instead? Just ask, we're happy to help.\n\n` +
       `Both ways, same magic.\n\n` +
       `Comfort Food Made With Magic ✨\n` +
       `—Merlin's Dish`,

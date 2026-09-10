@@ -284,6 +284,31 @@ function buildItemCard(dish) {
 
     updateAddEnabled();
   } else if (dish.requiresPasta) {
+    card.innerHTML = `
+      ${img}
+      <div class="item-body">
+        <h3>${dish.name}</h3>
+        ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
+        <p class="item-price">฿${dish.price}</p>
+        ${stockNote}
+        <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
+          <option value="">Choose pasta...</option>
+          ${PASTA_OPTIONS.map(
+            (p) =>
+              `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
+          ).join("")}
+        </select>
+        <div class="variant-row">
+          <div class="stepper local-stepper" data-qty="0">
+            <button type="button" class="minus">−</button>
+            <span class="qty">0</span>
+            <button type="button" class="plus">+</button>
+          </div>
+          <button type="button" class="add-line-btn" disabled>Add</button>
+        </div>
+      </div>
+    `;
+    const select = card.querySelector(".pasta-select");
     const stepper = card.querySelector(".local-stepper");
     const addBtn = card.querySelector(".add-line-btn");
     const qtyEl = stepper.querySelector(".qty");

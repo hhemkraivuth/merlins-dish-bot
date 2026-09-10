@@ -574,6 +574,54 @@ function updateCartBar() {
   document.getElementById("cart-total").textContent = `฿${cartTotal()}`;
 }
 
+// ---------- drinks/bacon upsell screen ----------
+
+// Shown once, right before the cart, only if the customer hasn't already
+// picked up a drink or the Bacon Steak -- a nudge to round out the order,
+// not a nag on every visit to the cart.
+function shouldShowUpsell() {
+  const lines = cartLines();
+  if (lines.length === 0) return false; // nothing to upsell against yet
+  const hasDrinkOrBacon = lines.some((l) => {
+    const dish = MENU.find((d) => d.id === l.itemId);
+    return dish && (dish.category === "drinks" || dish.id === "bacon_steak");
+  });
+  return !hasDrinkOrBacon;
+}
+
+function renderUpsellScreen() {
+  const wrap = document.getElementById("upsell-items");
+  wrap.innerHTML = "";
+  const upsellItems = MENU.filter((d) => (d.category === "drinks" || d.id === "bacon_steak") && !isUnavailableClient(d));
+
+  upsellItems.forEach((dish) => {
+    const row = document.createElement("div");
+    row.className = "upsell-item-row";
+    row.innerHTML = `
+      <div class="upsell-item-info">
+        <span class="upsell-item-name">${dish.name}</span>
+        <span class="upsell-item-price">฿${dish.price}</span>
+      </div>
+      <button type="button" class="upsell-add-btn">Add</button>
+    `;
+    const btn = row.querySelector(".upsell-add-btn");
+    btn.addEventListener("click", () => {
+      addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
+      btn.textContent = "Added ✓";
+      btn.classList.add("added");
+      btn.disabled = true;
+      showToast(`Added 1x ${dish.name}`);
+    });
+    wrap.appendChild(row);
+  });
+}
+
+// Client-side availability check mirroring isUnavailable() on the server --
+// the /api/menu response already marks each item's "available" flag.
+function isUnavailableClient(dish) {
+  return !dish.available;
+}
+
 // ---------- cart review screen ----------
 
 function renderCartScreen() {
@@ -960,6 +1008,20 @@ function wireStaticEvents() {
   });
 
   document.getElementById("view-cart-btn").addEventListener("click", () => {
+    if (shouldShowUpsell()) {
+      renderUpsellScreen();
+      showScreen("upsell-screen");
+    } else {
+      renderCartScreen();
+      showScreen("cart-screen");
+    }
+  });
+
+  document.getElementById("upsell-skip-btn").addEventListener("click", () => {
+    renderCartScreen();
+    showScreen("cart-screen");
+  });
+  document.getElementById("upsell-continue-btn").addEventListener("click", () => {
     renderCartScreen();
     showScreen("cart-screen");
   });

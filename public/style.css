@@ -235,7 +235,8 @@ button, input, textarea, select {
 .stepper button.plus { background: var(--red); color: #fff; }
 .stepper .qty { min-width: 18px; text-align: center; font-weight: 800; }
 
-.pasta-select {
+.pasta-select,
+.size-select {
   width: 100%;
   padding: 8px 10px;
   border-radius: var(--radius-sm);

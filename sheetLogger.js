@@ -8,6 +8,19 @@
 
 const { google } = require("googleapis");
 
+// All timestamps written to the sheet use Bangkok time explicitly --
+// without this, Date/Time default to whatever timezone the server
+// itself runs in (e.g. Railway's US East), which silently drifts the
+// logged times away from what actually happened locally.
+const BANGKOK_TZ = "Asia/Bangkok";
+function bangkokDateParts() {
+  const now = new Date();
+  return {
+    date: now.toLocaleDateString("en-GB", { timeZone: BANGKOK_TZ }), // DD/MM/YYYY
+    time: now.toLocaleTimeString("en-GB", { timeZone: BANGKOK_TZ }),
+  };
+}
+
 const hasSheetCreds =
   !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
   !!process.env.GOOGLE_PRIVATE_KEY &&
@@ -47,10 +60,10 @@ async function logOrder(order) {
     .map((i) => `${i.qty}x ${i.name}`)
     .join(", ");
 
-  const now = new Date();
+  const { date, time } = bangkokDateParts();
   const row = [
-    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
-    now.toLocaleTimeString("en-GB"), // Time
+    date,
+    time,
     itemsText,
     "LINE Bot",
     "Order",
@@ -85,10 +98,10 @@ async function logMenuTap({ userId, displayName, trigger }) {
   const client = getClient();
   if (!client) return; // Sheet logging not configured -- skip silently.
 
-  const now = new Date();
+  const { date, time } = bangkokDateParts();
   const row = [
-    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
-    now.toLocaleTimeString("en-GB"), // Time
+    date,
+    time,
     userId,
     displayName || "",
     trigger, // e.g. "menu", "order", or the rich menu label

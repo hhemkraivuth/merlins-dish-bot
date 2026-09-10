@@ -64,7 +64,6 @@ const MENU = [
   { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", description: "Snail shells, maximum sauce inside" },
   { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", description: "Flat, silky strands. Perfect coat" },
   { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", description: "The timeless, classic long strand" },
-  
 
   // -- Drinks: prices pulled from the Menu Summary tab's Drinks table
   //    (direct-order selling price, not the Grab-marked-up price). Two
@@ -100,7 +99,6 @@ const PASTA_OPTIONS = [
   { id: "lumache", name: "Lumache", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", mandatorySurcharge: 0, extraPrice: 40 },
   { id: "linguine", name: "Linguine", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", mandatorySurcharge: 0, extraPrice: 40 },
   { id: "spaghetti", name: "Spaghetti", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", mandatorySurcharge: 0, extraPrice: 40 },
-  
 ];
 
 // Serving size choices, used for dishes marked "requiresSize: true" above

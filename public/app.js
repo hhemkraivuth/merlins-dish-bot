@@ -15,10 +15,11 @@ const LIFF_ID = "2011487934-vA458ABe";
 let MENU = [];
 let CATEGORIES = [];
 let PASTA_OPTIONS = [];
+let SIZE_OPTIONS = [];
 let SHOP_INFO = {};
 let LINE_USER_ID = null;
 
-// cart: lineId -> { itemId, name, price, qty, pastaChoice }
+// cart: lineId -> { itemId, name, price, qty, pastaChoice, sizeChoice }
 let cart = {};
 
 let timing = "ASAP";
@@ -97,6 +98,7 @@ async function init() {
     MENU = menuRes.items;
     CATEGORIES = menuRes.categories;
     PASTA_OPTIONS = menuRes.pastaOptions;
+    SIZE_OPTIONS = menuRes.sizeOptions;
     SHOP_INFO = shopRes;
   } catch (err) {
     console.error(err);
@@ -208,7 +210,7 @@ function buildItemCard(dish) {
     stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
   }
 
-  if (dish.requiresPasta) {
+  if (dish.requiresSize) {
     card.innerHTML = `
       ${img}
       <div class="item-body">
@@ -216,11 +218,11 @@ function buildItemCard(dish) {
         ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
         <p class="item-price">฿${dish.price}</p>
         ${stockNote}
-        <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
-          <option value="">Choose pasta...</option>
-          ${PASTA_OPTIONS.map(
-            (p) =>
-              `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
+        <select class="size-select" ${!dish.available ? "disabled" : ""}>
+          <option value="">Choose serving size...</option>
+          ${SIZE_OPTIONS.map(
+            (s) =>
+              `<option value="${s.id}">${s.name}${s.mandatorySurcharge ? ` (+฿${s.mandatorySurcharge})` : ""}</option>`
           ).join("")}
         </select>
         <div class="variant-row">
@@ -233,7 +235,55 @@ function buildItemCard(dish) {
         </div>
       </div>
     `;
-    const select = card.querySelector(".pasta-select");
+    const select = card.querySelector(".size-select");
+    const stepper = card.querySelector(".local-stepper");
+    const addBtn = card.querySelector(".add-line-btn");
+    const qtyEl = stepper.querySelector(".qty");
+
+    const updateAddEnabled = () => {
+      const qty = parseInt(stepper.dataset.qty, 10);
+      addBtn.disabled = !dish.available || !select.value || qty < 1;
+    };
+    select.addEventListener("change", updateAddEnabled);
+
+    stepper.querySelector(".minus").addEventListener("click", () => {
+      let n = parseInt(stepper.dataset.qty, 10);
+      if (n > 0) {
+        n -= 1;
+        stepper.dataset.qty = n;
+        qtyEl.textContent = n;
+        updateAddEnabled();
+      }
+    });
+    stepper.querySelector(".plus").addEventListener("click", () => {
+      let n = parseInt(stepper.dataset.qty, 10);
+      const max = dish.remaining != null ? dish.remaining : Infinity;
+      if (n < max) {
+        n += 1;
+        stepper.dataset.qty = n;
+        qtyEl.textContent = n;
+        updateAddEnabled();
+      }
+    });
+
+    addBtn.addEventListener("click", () => {
+      const sizeId = select.value;
+      const qty = parseInt(stepper.dataset.qty, 10);
+      if (qty < 1) return;
+      const size = SIZE_OPTIONS.find((s) => s.id === sizeId);
+      const surcharge = size ? size.mandatorySurcharge || 0 : 0;
+      const lineId = `${dish.id}:${sizeId}`;
+      const name = `${dish.name} (${size ? size.name : sizeId})`;
+      addToCart(lineId, dish.id, name, dish.price + surcharge, qty, null, sizeId);
+      showToast(`Added ${qty}x ${name}`);
+      select.value = "";
+      stepper.dataset.qty = 0;
+      qtyEl.textContent = 0;
+      updateAddEnabled();
+    });
+
+    updateAddEnabled();
+  } else if (dish.requiresPasta) {
     const stepper = card.querySelector(".local-stepper");
     const addBtn = card.querySelector(".add-line-btn");
     const qtyEl = stepper.querySelector(".qty");
@@ -324,11 +374,11 @@ function buildItemCard(dish) {
   return card;
 }
 
-function addToCart(lineId, itemId, name, price, qty, pastaChoice) {
+function addToCart(lineId, itemId, name, price, qty, pastaChoice, sizeChoice) {
   if (cart[lineId]) {
     cart[lineId].qty += qty;
   } else {
-    cart[lineId] = { itemId, name, price, qty, pastaChoice };
+    cart[lineId] = { itemId, name, price, qty, pastaChoice, sizeChoice: sizeChoice || null };
   }
   updateCartBar();
 }
@@ -824,7 +874,7 @@ async function requestDeliveryFeeAndWait() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         lineUserId: LINE_USER_ID,
-        items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice })),
+        items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice, sizeChoice: l.sizeChoice })),
         distanceKm,
         addressNote,
       }),
@@ -928,7 +978,7 @@ async function submitOrder() {
 
   const order = {
     lineUserId: LINE_USER_ID,
-    items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice, isRewardLine: !!l.isRewardLine })),
+    items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice, sizeChoice: l.sizeChoice, isRewardLine: !!l.isRewardLine })),
     timing,
     scheduleText,
     location: deliveryLocation,

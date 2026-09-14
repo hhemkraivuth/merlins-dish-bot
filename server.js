@@ -1811,6 +1811,7 @@ app.get("/api/menu", (req, res) => {
       discountedPrice: discountedPrice(d.id, d.price),
       promoLabel: promo ? promo.label : null,
       promoPercentOff: promo ? promo.percentOff : null,
+      promoIsItemSpecific: promo ? !!promo.isItemSpecific : false,
       category: d.category,
       image: d.image,
       description: d.description || null,

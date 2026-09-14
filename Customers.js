@@ -152,7 +152,7 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) 
 
   try {
     const existing = await getCustomer(phone);
-    const now = new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" });
+    const now = new Date().toLocaleDateString("en-GB");
 
     const priorCount = existing && existing.found ? existing.orderCount : 0;
     let newOrderCount = priorCount + 1;

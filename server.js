@@ -32,6 +32,8 @@ const axios = require("axios");
 const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
+const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
+const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
 const { logOrder, logMenuTap } = require("./sheetLogger");
 const {
   getCustomer,
@@ -1455,6 +1457,157 @@ async function handleAdminCommand(replyToken, text) {
     await client.replyMessage(replyToken, { type: "text", text: `"${id}" stock set to ${n}.` });
     return true;
   }
+  // ---- Promo commands ----
+  // "promo" -- show current storewide + item promo status
+  // "promo off" -- turn off the storewide promo
+  // "promo <percent> <D/M-D/M> [label]" -- set the storewide promo, e.g.
+  //   "promo 10 14/9-30/9 Launch Campaign"
+  // "itempromo <itemId> off" -- clear one item's specific promo
+  // "itempromo <itemId> <percent> <D/M-D/M> [label]" -- set one item's
+  //   specific promo, e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal"
+  //   An item promo always wins over the storewide one for that item.
+  if (lower === "promo" || lower === "promos") {
+    const sw = getStorewidePromo();
+    const swLine = isPromoLiveToday(sw)
+      ? `Storewide: ${sw.percentOff}% off "${sw.label}" (${formatDateRangeForDisplay({ start: sw.startDate, end: sw.endDate })}) -- LIVE NOW`
+      : sw.active
+      ? `Storewide: ${sw.percentOff}% off "${sw.label}" (${formatDateRangeForDisplay({ start: sw.startDate, end: sw.endDate })}) -- not live today`
+      : "Storewide: none active";
+    const items = getItemPromos();
+    const itemLines = Object.entries(items).map(([id, p]) => {
+      const live = isPromoLiveToday(p) ? "LIVE NOW" : p.active ? "not live today" : "inactive";
+      return `- ${id}: ${p.percentOff}% off "${p.label}" (${formatDateRangeForDisplay({ start: p.startDate, end: p.endDate })}) -- ${live}`;
+    });
+    const itemText = itemLines.length ? itemLines.join("\n") : "none set";
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `${swLine}\n\nItem-specific promos:\n${itemText}\n\nRemember: an item with its own promo never also gets the storewide discount.`,
+    });
+    return true;
+  }
+  if (lower === "promo off") {
+    const sw = getStorewidePromo();
+    setStorewidePromo({ ...sw, active: false });
+    await client.replyMessage(replyToken, { type: "text", text: `Storewide promo turned off.` });
+    return true;
+  }
+  if (lower.startsWith("promo ")) {
+    const parts = text.trim().split(/\s+/);
+    const percent = parseInt(parts[1], 10);
+    const dateRangeRaw = parts[2];
+    const label = parts.slice(3).join(" ") || "Promotion";
+    if (isNaN(percent) || percent <= 0 || percent > 100) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that. Use "promo <percent> <D/M-D/M> [label]", e.g. "promo 10 14/9-30/9 Launch Campaign".`,
+      });
+      return true;
+    }
+    const range = parseCloseDateRange(dateRangeRaw || "");
+    if (!range) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that date range. Use "promo <percent> <D/M-D/M> [label]", e.g. "promo 10 14/9-30/9 Launch Campaign".`,
+      });
+      return true;
+    }
+    setStorewidePromo({ active: true, label, percentOff: percent, startDate: range.start, endDate: range.end });
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Storewide promo set: ${percent}% off "${label}", ${formatDateRangeForDisplay(range)}. Applies to every item without its own item-specific promo. Text "promo" anytime to check status.`,
+    });
+    return true;
+  }
+  if (lower.startsWith("itempromo ")) {
+    const parts = text.trim().split(/\s+/);
+    const itemId = parts[1];
+    if (!itemId || !MENU.find((d) => d.id === itemId)) {
+      await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${itemId || ""}". Text "stock" to see valid ids.` });
+      return true;
+    }
+    if ((parts[2] || "").toLowerCase() === "off") {
+      clearItemPromo(itemId);
+      await client.replyMessage(replyToken, { type: "text", text: `Promo cleared for "${itemId}". It now follows the storewide promo, if any.` });
+      return true;
+    }
+    const percent = parseInt(parts[2], 10);
+    const dateRangeRaw = parts[3];
+    const label = parts.slice(4).join(" ") || "Promotion";
+    if (isNaN(percent) || percent <= 0 || percent > 100) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that. Use "itempromo <itemId> <percent> <D/M-D/M> [label]", e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal". Or "itempromo <itemId> off" to clear it.`,
+      });
+      return true;
+    }
+    const range = parseCloseDateRange(dateRangeRaw || "");
+    if (!range) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that date range. Use "itempromo <itemId> <percent> <D/M-D/M> [label]", e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal".`,
+      });
+      return true;
+    }
+    setItemPromo(itemId, { active: true, label, percentOff: percent, startDate: range.start, endDate: range.end });
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Promo set for "${itemId}": ${percent}% off "${label}", ${formatDateRangeForDisplay(range)}. This item will use this instead of the storewide promo. Text "promo" anytime to check status.`,
+    });
+    return true;
+  }
+
+  // ---- Announcement (entrance pop-up) commands ----
+  // "announce <headline> | <body text> | D/M-D/M" -- replaces the usual
+  //   "why order direct" pop-up with this announcement while the date
+  //   range is active. e.g.:
+  //   "announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"
+  // "announce off" -- clear it, back to the normal benefits pop-up
+  // "announce" (alone) -- check current status
+  if (lower === "announce") {
+    const a = getAnnouncement();
+    if (!a.active) {
+      await client.replyMessage(replyToken, { type: "text", text: `No announcement set. Customers see the normal "why order direct" pop-up.` });
+    } else {
+      const live = isAnnouncementLiveToday() ? "LIVE NOW" : "not live today (outside date range)";
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Headline: ${a.headline}\nBody: ${a.body}\nDates: ${formatDateRangeForDisplay({ start: a.startDate, end: a.endDate })}\nStatus: ${live}`,
+      });
+    }
+    return true;
+  }
+  if (lower === "announce off") {
+    clearAnnouncement();
+    await client.replyMessage(replyToken, { type: "text", text: `Announcement cleared. Customers will see the normal "why order direct" pop-up again.` });
+    return true;
+  }
+  if (lower.startsWith("announce ")) {
+    const rest = text.trim().slice(9);
+    const segments = rest.split("|").map((s) => s.trim());
+    if (segments.length !== 3) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that. Use "announce <headline> | <body text> | D/M-D/M", e.g.\n"announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"`,
+      });
+      return true;
+    }
+    const [headline, body, dateRangeRaw] = segments;
+    const range = parseCloseDateRange(dateRangeRaw);
+    if (!range) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that date range. Use D/M-D/M, e.g. "14/9-30/9".`,
+      });
+      return true;
+    }
+    setAnnouncement({ active: true, headline, body, startDate: range.start, endDate: range.end });
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Announcement set: "${headline}", ${formatDateRangeForDisplay(range)}. This replaces the normal entrance pop-up while it's live. Text "announce" anytime to check status, or "announce off" to clear it.`,
+    });
+    return true;
+  }
+
   if (lower.startsWith("soldout ")) {
     // Accepts one or more item ids, comma-separated: "soldout a, b, c"
     // (spaces around commas are optional). Reports back which ones were
@@ -1649,19 +1802,31 @@ async function handleFollow(userId, replyToken) {
 // second way in for customers.
 
 app.get("/api/menu", (req, res) => {
-  const items = MENU.map((d) => ({
-    id: d.id,
-    name: d.name,
-    price: d.price,
-    category: d.category,
-    image: d.image,
-    description: d.description || null,
-    requiresPasta: !!d.requiresPasta,
-    requiresSize: !!d.requiresSize,
-    available: !isUnavailable(d.id),
-    remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
-  }));
-  res.json({ categories: CATEGORIES, items, pastaOptions: PASTA_OPTIONS, sizeOptions: SIZE_OPTIONS });
+  const items = MENU.map((d) => {
+    const promo = activePromoForItem(d.id);
+    return {
+      id: d.id,
+      name: d.name,
+      price: d.price,
+      discountedPrice: discountedPrice(d.id, d.price),
+      promoLabel: promo ? promo.label : null,
+      promoPercentOff: promo ? promo.percentOff : null,
+      category: d.category,
+      image: d.image,
+      description: d.description || null,
+      requiresPasta: !!d.requiresPasta,
+      requiresSize: !!d.requiresSize,
+      available: !isUnavailable(d.id),
+      remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
+    };
+  });
+  res.json({
+    categories: CATEGORIES,
+    items,
+    pastaOptions: PASTA_OPTIONS,
+    sizeOptions: SIZE_OPTIONS,
+    announcement: isAnnouncementLiveToday() ? getAnnouncement() : null,
+  });
 });
 
 app.get("/api/shop-info", (req, res) => {
@@ -1850,22 +2015,47 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
       }
     }
 
+    // Promo discount, recalculated server-side from promos.js -- never
+    // trust a discounted price sent by the client. Reward lines (free or
+    // surcharge-only) are excluded: a loyalty reward and a promo are two
+    // separate mechanisms and shouldn't compound -- customers keep earning
+    // and redeeming points as normal regardless of any active promo.
+    //
+    // Item names stay clean (no "(20% off)" text baked in) so they keep
+    // matching cleanly against the Menu Summary tab for cost lookups, same
+    // as the Grab workflow: the gross/full price is what's shown per item,
+    // and the discount is logged separately -- see discountAmount below,
+    // rolled up into its own deduction-style row in logOrder.
+    const grossPrice = price;
+    let promoLabel = null;
+    if (!reqItem.isRewardLine) {
+      const promo = activePromoForItem(dish.id);
+      if (promo) {
+        price = Math.round(price * (1 - promo.percentOff / 100));
+        promoLabel = promo.label;
+      }
+    }
+    const discountAmount = grossPrice - price;
+
     if (reqItem.isRewardLine && redeemTier && !redeemApplied) {
       // Zero out only the base dish price. Any noodle surcharge (already
       // folded into `price` above) still applies. Reward lines are
       // always qty 1 -- ignore anything else the client might send here.
       const surcharge = price - dish.price;
-      lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null });
+      lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null, discountAmount: 0, promoLabel: null });
       redeemApplied = true;
     } else if (reqItem.isRewardLine && !redeemApplied) {
       // Reward line was requested but didn't validate (see eligibility
       // check above) -- charge it at full price rather than silently
       // dropping the item from the order.
-      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
+      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null, discountAmount: 0, promoLabel: null });
     } else {
-      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null });
+      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null, discountAmount, promoLabel });
     }
   }
+
+  const totalDiscount = lines.reduce((sum, l) => sum + (l.discountAmount || 0) * l.qty, 0);
+  const promoLabelsUsed = [...new Set(lines.filter((l) => l.discountAmount > 0 && l.promoLabel).map((l) => l.promoLabel))];
 
   const foodTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
 
@@ -1968,6 +2158,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
       ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
       : `Delivery: ฿${deliveryFeeAmount}${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
+  const discountLine = totalDiscount > 0 ? `Discount applied: -฿${totalDiscount}${promoLabelsUsed.length ? ` (${promoLabelsUsed.join(", ")})` : ""}\n` : "";
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (target) {
@@ -1976,7 +2167,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         {
           type: "text",
           text:
-            `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\nTiming: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
+            `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\n${discountLine}Timing: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
             `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
             `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
         },
@@ -1998,6 +2189,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     total,
     slipRef: slip.transRef,
     slipUrl,
+    promoLabel: promoLabelsUsed.length ? promoLabelsUsed.join(", ") : null,
   });
 
   const loyaltyResult = await recordOrder({

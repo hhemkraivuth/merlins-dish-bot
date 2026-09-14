@@ -715,3 +715,14 @@ button, input, textarea, select {
 .discount-amount {
   color: var(--success);
 }
+
+/* ---------- Announcement pop-up ---------- */
+#announcement-body {
+  white-space: pre-line; /* keep line breaks the admin typed in the body text */
+}
+.announcement-dates {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--red-deep);
+  margin: 0 0 16px;
+}

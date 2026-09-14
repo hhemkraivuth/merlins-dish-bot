@@ -16,6 +16,7 @@ let MENU = [];
 let CATEGORIES = [];
 let PASTA_OPTIONS = [];
 let SIZE_OPTIONS = [];
+let ANNOUNCEMENT = null;
 let SHOP_INFO = {};
 let LINE_USER_ID = null;
 
@@ -99,6 +100,7 @@ async function init() {
     CATEGORIES = menuRes.categories;
     PASTA_OPTIONS = menuRes.pastaOptions;
     SIZE_OPTIONS = menuRes.sizeOptions;
+    ANNOUNCEMENT = menuRes.announcement || null;
     SHOP_INFO = shopRes;
   } catch (err) {
     console.error(err);
@@ -114,7 +116,24 @@ async function init() {
   renderCategoryTabs();
   renderItemList();
   wireStaticEvents();
-  showDirectOrderScreen();
+  if (ANNOUNCEMENT) {
+    showAnnouncementScreen();
+  } else {
+    showDirectOrderScreen();
+  }
+}
+
+// Shown instead of the usual "why order direct" pop-up whenever an
+// announcement is active (set by texting "announce ..." into the private
+// group) -- e.g. a promo campaign or a new-menu-item notice. Fully replaces
+// the normal entrance screen for as long as the announcement is live.
+function showAnnouncementScreen() {
+  document.getElementById("announcement-headline").textContent = ANNOUNCEMENT.headline;
+  document.getElementById("announcement-body").textContent = ANNOUNCEMENT.body;
+  showScreen("announcement-screen");
+  const goToMenu = () => showScreen("menu-screen");
+  document.getElementById("announcement-close").addEventListener("click", goToMenu, { once: true });
+  document.getElementById("announcement-continue").addEventListener("click", goToMenu, { once: true });
 }
 
 // Shown once per app open, as its own screen between the loading screen and
@@ -210,13 +229,27 @@ function buildItemCard(dish) {
     stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
   }
 
+  // Mirrors the server's /api/place-order math exactly: promo % (if any)
+  // is applied to the FULL line price, i.e. base price + any mandatory
+  // pasta/size surcharge, not the base price alone. The server is the
+  // final authority on the actual charge -- this is purely for display
+  // so the customer sees the right number before checking out.
+  const priceWithPromo = (basePrice) => {
+    if (dish.promoPercentOff == null) return basePrice;
+    return Math.round(basePrice * (1 - dish.promoPercentOff / 100));
+  };
+  const priceTag = (basePrice) => {
+    if (dish.promoPercentOff == null) return `<p class="item-price">฿${basePrice}</p>`;
+    return `<p class="item-price"><span class="item-price-was">฿${basePrice}</span> ฿${priceWithPromo(basePrice)} <span class="item-promo-badge">${dish.promoPercentOff}% off</span></p>`;
+  };
+
   if (dish.requiresSize) {
     card.innerHTML = `
       ${img}
       <div class="item-body">
         <h3>${dish.name}</h3>
         ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
-        <p class="item-price">฿${dish.price}</p>
+        ${priceTag(dish.price)}
         ${stockNote}
         <select class="size-select" ${!dish.available ? "disabled" : ""}>
           <option value="">Choose serving size...</option>
@@ -274,7 +307,7 @@ function buildItemCard(dish) {
       const surcharge = size ? size.mandatorySurcharge || 0 : 0;
       const lineId = `${dish.id}:${sizeId}`;
       const name = `${dish.name} (${size ? size.name : sizeId})`;
-      addToCart(lineId, dish.id, name, dish.price + surcharge, qty, null, sizeId);
+      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, null, sizeId);
       showToast(`Added ${qty}x ${name}`);
       select.value = "";
       stepper.dataset.qty = 0;
@@ -289,7 +322,7 @@ function buildItemCard(dish) {
       <div class="item-body">
         <h3>${dish.name}</h3>
         ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
-        <p class="item-price">฿${dish.price}</p>
+        ${priceTag(dish.price)}
         ${stockNote}
         <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
           <option value="">Choose pasta...</option>
@@ -347,7 +380,7 @@ function buildItemCard(dish) {
       const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
       const lineId = `${dish.id}:${pastaId}`;
       const name = `${dish.name} (${pasta ? pasta.name : pastaId})`;
-      addToCart(lineId, dish.id, name, dish.price + surcharge, qty, pastaId);
+      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, pastaId);
       showToast(`Added ${qty}x ${name}`);
       select.value = "";
       stepper.dataset.qty = 0;
@@ -363,7 +396,7 @@ function buildItemCard(dish) {
       <div class="item-body">
         <h3>${dish.name}</h3>
         ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
-        <p class="item-price">฿${dish.price}</p>
+        ${priceTag(dish.price)}
         ${stockNote}
         <div class="stepper" data-item="${dish.id}">
           <button type="button" class="minus">−</button>
@@ -390,7 +423,7 @@ function buildItemCard(dish) {
         showToast(`Only ${max} of "${dish.name}" left`);
         return;
       }
-      addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
+      addToCart(dish.id, dish.id, dish.name, priceWithPromo(dish.price), 1, null);
       qtyEl.textContent = cart[dish.id].qty;
       showToast(`Added 1x ${dish.name}`);
     });
@@ -674,16 +707,21 @@ function renderUpsellScreen() {
   upsellItems.forEach((dish) => {
     const row = document.createElement("div");
     row.className = "upsell-item-row";
+    const upsellPrice =
+      dish.promoPercentOff != null
+        ? `<span class="item-price-was">฿${dish.price}</span> ฿${Math.round(dish.price * (1 - dish.promoPercentOff / 100))} <span class="item-promo-badge">${dish.promoPercentOff}% off</span>`
+        : `฿${dish.price}`;
     row.innerHTML = `
       <div class="upsell-item-info">
         <span class="upsell-item-name">${dish.name}</span>
-        <span class="upsell-item-price">฿${dish.price}</span>
+        <span class="upsell-item-price">${upsellPrice}</span>
       </div>
       <button type="button" class="upsell-add-btn">Add</button>
     `;
     const btn = row.querySelector(".upsell-add-btn");
     btn.addEventListener("click", () => {
-      addToCart(dish.id, dish.id, dish.name, dish.price, 1, null);
+      const finalPrice = dish.promoPercentOff != null ? Math.round(dish.price * (1 - dish.promoPercentOff / 100)) : dish.price;
+      addToCart(dish.id, dish.id, dish.name, finalPrice, 1, null);
       btn.textContent = "Added ✓";
       btn.classList.add("added");
       btn.disabled = true;

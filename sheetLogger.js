@@ -8,19 +8,6 @@
 
 const { google } = require("googleapis");
 
-// All timestamps written to the sheet use Bangkok time explicitly --
-// without this, Date/Time default to whatever timezone the server
-// itself runs in (e.g. Railway's US East), which silently drifts the
-// logged times away from what actually happened locally.
-const BANGKOK_TZ = "Asia/Bangkok";
-function bangkokDateParts() {
-  const now = new Date();
-  return {
-    date: now.toLocaleDateString("en-GB", { timeZone: BANGKOK_TZ }), // DD/MM/YYYY
-    time: now.toLocaleTimeString("en-GB", { timeZone: BANGKOK_TZ }),
-  };
-}
-
 const hasSheetCreds =
   !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
   !!process.env.GOOGLE_PRIVATE_KEY &&
@@ -44,7 +31,7 @@ function getClient() {
   return sheetsClient;
 }
 
-// order = { name, address, phone, items: [{name, qty, price}], total, slipRef, slipUrl }
+// order = { name, address, phone, items: [{name, qty, price}], total, slipRef, slipUrl, discountAmount, promoLabel }
 //
 // Logs to the "Orders" tab of the Bot Activity sheet (the same file as
 // Menu Taps) -- NOT the recipe-costs Living Document. Kept separate per
@@ -52,23 +39,43 @@ function getClient() {
 // If the "Orders" tab doesn't exist yet, create it once with headers:
 // Date | Time | Items | Order From | Type | Qty (Portions) | Total (THB) |
 // Customer Name | Address | Phone | Slip Ref | Slip URL
+//
+// GROSS vs NET, matching the Grab screenshot-logging convention (see
+// claude/daily-screenshot-logging-workflow.md): "Total (THB)" on the
+// order row is always the GROSS/full pre-discount amount, same as how
+// Grab's "Order value" is gross. If order.discountAmount is > 0 (a promo
+// applied), a second row is logged directly underneath with Type =
+// "Discount" and a NEGATIVE Total (THB), the same way the 30% Grab
+// campaign discount gets its own deduction row. The actual net amount
+// the customer paid is: gross Total (THB) + the discount row's total
+// (since the discount row is negative), same arithmetic as the Grab rows.
 async function logOrder(order) {
   const client = getClient();
   if (!client) return; // Sheet logging not configured -- skip silently.
 
+  // item.price is already net (post-discount) per unit -- add back the
+  // per-unit discount to show the gross/full price here, so item names
+  // and prices always read clean and match the Menu Summary tab, exactly
+  // like Grab's "Money In" rows show gross, not the discounted net.
   const itemsText = order.items
-    .map((i) => `${i.qty}x ${i.name}`)
+    .map((i) => {
+      const grossPricePerUnit = i.price + (i.discountAmount || 0);
+      return `${i.qty}x ${i.name} (฿${grossPricePerUnit})`;
+    })
     .join(", ");
 
-  const { date, time } = bangkokDateParts();
-  const row = [
-    date,
-    time,
+  const grossTotal = order.items.reduce((sum, i) => sum + (i.price + (i.discountAmount || 0)) * i.qty, 0);
+  const totalDiscount = order.items.reduce((sum, i) => sum + (i.discountAmount || 0) * i.qty, 0);
+
+  const now = new Date();
+  const orderRow = [
+    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
+    now.toLocaleTimeString("en-GB"), // Time
     itemsText,
     "LINE Bot",
     "Order",
     order.items.reduce((sum, i) => sum + i.qty, 0), // Qty (Portions)
-    order.total, // Total (THB)
+    grossTotal, // Total (THB) -- GROSS, matching Grab's Order value convention
     order.name,
     order.address,
     order.phone,
@@ -76,12 +83,31 @@ async function logOrder(order) {
     order.slipUrl || "", // Link to the saved slip photo, for reference
   ];
 
+  const rows = [orderRow];
+  if (totalDiscount > 0) {
+    const label = order.promoLabel ? `Promo discount (${order.promoLabel})` : "Promo discount";
+    rows.push([
+      now.toLocaleDateString("en-GB"),
+      now.toLocaleTimeString("en-GB"),
+      label,
+      "LINE Bot",
+      "Discount",
+      "",
+      -totalDiscount, // negative, same convention as the Grab merchant-funded-discount rows
+      order.name,
+      "",
+      "",
+      order.slipRef || "",
+      "",
+    ]);
+  }
+
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
       range: "Orders!A:L",
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [row] },
+      requestBody: { values: rows },
     });
   } catch (err) {
     // Never let a logging failure break the order flow for the customer.
@@ -98,10 +124,10 @@ async function logMenuTap({ userId, displayName, trigger }) {
   const client = getClient();
   if (!client) return; // Sheet logging not configured -- skip silently.
 
-  const { date, time } = bangkokDateParts();
+  const now = new Date();
   const row = [
-    date,
-    time,
+    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
+    now.toLocaleTimeString("en-GB"), // Time
     userId,
     displayName || "",
     trigger, // e.g. "menu", "order", or the rich menu label

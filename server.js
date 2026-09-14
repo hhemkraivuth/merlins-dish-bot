@@ -190,6 +190,30 @@ function formatDateRangeForDisplay(range) {
   return range.start === range.end ? fmt(range.start) : `${fmt(range.start)}-${fmt(range.end)}`;
 }
 
+const LONG_MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// "15 September - 30 September 2026" style, used only in announcement
+// admin messages (the customer-facing pop-up itself doesn't show dates
+// at all -- just headline and body). Other admin commands (promo,
+// closures) keep the short D/M/YYYY format, this one is announcement-only
+// per Lily's request.
+function formatDateRangeLong(range) {
+  const fmt = (str) => {
+    const [y, m, d] = str.split("-");
+    return { day: parseInt(d, 10), month: LONG_MONTH_NAMES[parseInt(m, 10) - 1], year: y };
+  };
+  const start = fmt(range.start);
+  const end = fmt(range.end);
+  if (range.start === range.end) return `${start.day} ${start.month} ${start.year}`;
+  if (start.year === end.year && start.month === end.month) {
+    return `${start.day} - ${end.day} ${end.month} ${end.year}`;
+  }
+  return `${start.day} ${start.month}${start.year !== end.year ? ` ${start.year}` : ""} - ${end.day} ${end.month} ${end.year}`;
+}
+
 // True if today (Bangkok time) falls inside any scheduled closure. Also
 // prunes closures whose end date has already passed, so the list doesn't
 // grow forever and "status" doesn't show stale dates.
@@ -1563,47 +1587,58 @@ async function handleAdminCommand(replyToken, text) {
   //   "announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"
   // "announce off" -- clear it, back to the normal benefits pop-up
   // "announce" (alone) -- check current status
-  if (lower === "announce") {
-    const a = getAnnouncement();
-    if (!a.active) {
-      await client.replyMessage(replyToken, { type: "text", text: `No announcement set. Customers see the normal "why order direct" pop-up.` });
-    } else {
-      const live = isAnnouncementLiveToday() ? "LIVE NOW" : "not live today (outside date range)";
-      await client.replyMessage(replyToken, {
-        type: "text",
-        text: `Headline: ${a.headline}\nBody: ${a.body}\nDates: ${formatDateRangeForDisplay({ start: a.startDate, end: a.endDate })}\nStatus: ${live}`,
-      });
+  // "announcement" also works everywhere "announce" does, in case that's
+  // the word that comes to mind when typing.
+  const announceCmdMatch = lower.match(/^(announce|announcement)\b(.*)$/);
+  if (announceCmdMatch) {
+    const cmdRest = announceCmdMatch[2].trim();
+    if (cmdRest === "") {
+      const a = getAnnouncement();
+      if (!a.active) {
+        await client.replyMessage(replyToken, { type: "text", text: `No announcement set. Customers see the normal "why order direct" pop-up.` });
+      } else {
+        const live = isAnnouncementLiveToday() ? "LIVE NOW" : "not live today (outside date range)";
+        await client.replyMessage(replyToken, {
+          type: "text",
+          text: `Headline: ${a.headline}\nBody: ${a.body}\nDates: ${formatDateRangeLong({ start: a.startDate, end: a.endDate })}\nStatus: ${live}`,
+        });
+      }
+      return true;
     }
-    return true;
-  }
-  if (lower === "announce off") {
-    clearAnnouncement();
-    await client.replyMessage(replyToken, { type: "text", text: `Announcement cleared. Customers will see the normal "why order direct" pop-up again.` });
-    return true;
-  }
-  if (lower.startsWith("announce ")) {
-    const rest = text.trim().slice(9);
-    const segments = rest.split("|").map((s) => s.trim());
+    if (cmdRest === "off") {
+      clearAnnouncement();
+      await client.replyMessage(replyToken, { type: "text", text: `Announcement cleared. Customers will see the normal "why order direct" pop-up again.` });
+      return true;
+    }
+    // Use the ORIGINAL text (not lowercased) from just after the command
+    // word, so headline/body keep their original capitalization.
+    const originalRest = text.trim().replace(/^(announcement|announce)\s*/i, "");
+    // Forgiving cleanup: angle brackets around a segment are just visual
+    // framing, not part of the content -- strip a leading/trailing "<"/">"
+    // per segment. Also accept a dash with spaces around it in the date
+    // range ("15/9 - 30/9" as well as "15/9-30/9").
+    const segments = originalRest.split("|").map((s) => s.trim().replace(/^<|>$/g, "").trim());
     if (segments.length !== 3) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that. Use "announce <headline> | <body text> | D/M-D/M", e.g.\n"announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"`,
+        text: `Couldn't read that -- need exactly 3 parts separated by "|". Use "announce <headline> | <body text> | D/M-D/M", e.g.\n"announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"`,
       });
       return true;
     }
     const [headline, body, dateRangeRaw] = segments;
-    const range = parseCloseDateRange(dateRangeRaw);
+    const normalizedDateRange = dateRangeRaw.replace(/\s*-\s*/g, "-"); // "15/9 - 30/9" -> "15/9-30/9"
+    const range = parseCloseDateRange(normalizedDateRange);
     if (!range) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that date range. Use D/M-D/M, e.g. "14/9-30/9".`,
+        text: `Couldn't read that date range ("${dateRangeRaw}"). Use D/M-D/M, e.g. "14/9-30/9" or "15/9 - 30/9".`,
       });
       return true;
     }
     setAnnouncement({ active: true, headline, body, startDate: range.start, endDate: range.end });
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Announcement set: "${headline}", ${formatDateRangeForDisplay(range)}. This replaces the normal entrance pop-up while it's live. Text "announce" anytime to check status, or "announce off" to clear it.`,
+      text: `Announcement set: "${headline}", ${formatDateRangeLong(range)}. This replaces the normal entrance pop-up while it's live. Text "announce" anytime to check status, or "announce off" to clear it.`,
     });
     return true;
   }

@@ -36,6 +36,21 @@
   </div>
 </div>
 
+<!-- ===================== ANNOUNCEMENT SCREEN ===================== -->
+<!-- Shown instead of the screen above whenever an admin-set announcement
+     is active (texted into the private group). Headline/body are filled
+     in by app.js at load time. -->
+<div id="announcement-screen" class="screen">
+  <div class="modal-standalone-wrap">
+    <div class="modal-card">
+      <button type="button" id="announcement-close" class="modal-close" aria-label="Close">✕</button>
+      <h2 id="announcement-headline"></h2>
+      <p class="upsell-subtext" id="announcement-body"></p>
+      <button type="button" id="announcement-continue" class="btn btn-primary btn-block">Continue ordering</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== MENU + CART SCREEN ===================== -->
 <div id="menu-screen" class="screen">
   <header class="topbar">

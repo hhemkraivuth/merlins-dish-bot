@@ -229,17 +229,18 @@ function buildItemCard(dish) {
     stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
   }
 
-  // Mirrors the server's /api/place-order math exactly: promo % (if any)
-  // is applied to the FULL line price, i.e. base price + any mandatory
-  // pasta/size surcharge, not the base price alone. The server is the
-  // final authority on the actual charge -- this is purely for display
-  // so the customer sees the right number before checking out.
+  // Item-specific promos (e.g. "Bolognese 20% off") get a visible green
+  // badge + strikethrough right on the menu card. The storewide promo
+  // (applies to everything with no item-specific promo of its own) is
+  // NEVER advertised per-item here -- it only shows up as a single line
+  // at checkout, so a wall of "10% off" tags doesn't read as "everything
+  // must go" clearance pricing.
   const priceWithPromo = (basePrice) => {
     if (dish.promoPercentOff == null) return basePrice;
     return Math.round(basePrice * (1 - dish.promoPercentOff / 100));
   };
   const priceTag = (basePrice) => {
-    if (dish.promoPercentOff == null) return `<p class="item-price">฿${basePrice}</p>`;
+    if (dish.promoPercentOff == null || !dish.promoIsItemSpecific) return `<p class="item-price">฿${basePrice}</p>`;
     return `<p class="item-price"><span class="item-price-was">฿${basePrice}</span> ฿${priceWithPromo(basePrice)} <span class="item-promo-badge">${dish.promoPercentOff}% off</span></p>`;
   };
 
@@ -307,7 +308,7 @@ function buildItemCard(dish) {
       const surcharge = size ? size.mandatorySurcharge || 0 : 0;
       const lineId = `${dish.id}:${sizeId}`;
       const name = `${dish.name} (${size ? size.name : sizeId})`;
-      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, null, sizeId);
+      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, null, sizeId, dish.price + surcharge);
       showToast(`Added ${qty}x ${name}`);
       select.value = "";
       stepper.dataset.qty = 0;
@@ -380,7 +381,7 @@ function buildItemCard(dish) {
       const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
       const lineId = `${dish.id}:${pastaId}`;
       const name = `${dish.name} (${pasta ? pasta.name : pastaId})`;
-      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, pastaId);
+      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, pastaId, undefined, dish.price + surcharge);
       showToast(`Added ${qty}x ${name}`);
       select.value = "";
       stepper.dataset.qty = 0;
@@ -423,7 +424,7 @@ function buildItemCard(dish) {
         showToast(`Only ${max} of "${dish.name}" left`);
         return;
       }
-      addToCart(dish.id, dish.id, dish.name, priceWithPromo(dish.price), 1, null);
+      addToCart(dish.id, dish.id, dish.name, priceWithPromo(dish.price), 1, null, undefined, dish.price);
       qtyEl.textContent = cart[dish.id].qty;
       showToast(`Added 1x ${dish.name}`);
     });
@@ -432,11 +433,11 @@ function buildItemCard(dish) {
   return card;
 }
 
-function addToCart(lineId, itemId, name, price, qty, pastaChoice, sizeChoice) {
+function addToCart(lineId, itemId, name, price, qty, pastaChoice, sizeChoice, grossPrice) {
   if (cart[lineId]) {
     cart[lineId].qty += qty;
   } else {
-    cart[lineId] = { itemId, name, price, qty, pastaChoice, sizeChoice: sizeChoice || null };
+    cart[lineId] = { itemId, name, price, qty, pastaChoice, sizeChoice: sizeChoice || null, grossPrice: grossPrice != null ? grossPrice : price };
   }
   updateCartBar();
 }
@@ -707,8 +708,10 @@ function renderUpsellScreen() {
   upsellItems.forEach((dish) => {
     const row = document.createElement("div");
     row.className = "upsell-item-row";
+    // Same rule as the main menu: item-specific promos get the badge,
+    // the storewide promo never shows per-item, even here.
     const upsellPrice =
-      dish.promoPercentOff != null
+      dish.promoPercentOff != null && dish.promoIsItemSpecific
         ? `<span class="item-price-was">฿${dish.price}</span> ฿${Math.round(dish.price * (1 - dish.promoPercentOff / 100))} <span class="item-promo-badge">${dish.promoPercentOff}% off</span>`
         : `฿${dish.price}`;
     row.innerHTML = `
@@ -721,7 +724,7 @@ function renderUpsellScreen() {
     const btn = row.querySelector(".upsell-add-btn");
     btn.addEventListener("click", () => {
       const finalPrice = dish.promoPercentOff != null ? Math.round(dish.price * (1 - dish.promoPercentOff / 100)) : dish.price;
-      addToCart(dish.id, dish.id, dish.name, finalPrice, 1, null);
+      addToCart(dish.id, dish.id, dish.name, finalPrice, 1, null, undefined, dish.price);
       btn.textContent = "Added ✓";
       btn.classList.add("added");
       btn.disabled = true;
@@ -993,6 +996,39 @@ function renderReviewScreen() {
     .map((l) => `<div class="summary-line"><span>${l.isRewardLine ? "🎉 " : ""}${l.qty}x ${l.name}</span><span>฿${l.price * l.qty}</span></div>`)
     .join("");
   const foodTotal = cartTotal();
+
+  // Discount isn't shown per-item on the menu, but the customer should
+  // see it clearly summarised here at checkout. Each cart line already
+  // stores its true gross (pre-discount) price from when it was added
+  // (see addToCart) -- summing that directly avoids any rounding drift
+  // that reversing the math from the already-rounded net price would
+  // introduce.
+  let grossTotal = 0;
+  const promoLabelsSeen = new Set();
+  cartLines().forEach((l) => {
+    const lineGross = l.grossPrice != null ? l.grossPrice : l.price;
+    grossTotal += lineGross * l.qty;
+    if (!l.isRewardLine && lineGross !== l.price) {
+      const dish = MENU.find((d) => d.id === l.itemId);
+      if (dish && dish.promoPercentOff != null) {
+        promoLabelsSeen.add(dish.promoLabel ? `${dish.promoPercentOff}% off (${dish.promoLabel})` : `${dish.promoPercentOff}% off`);
+      }
+    }
+  });
+  const discountTotal = Math.max(0, grossTotal - foodTotal);
+
+  const discountRow = document.getElementById("review-discount-row");
+  if (discountTotal > 0) {
+    document.getElementById("review-subtotal").textContent = `฿${grossTotal}`;
+    document.getElementById("review-discount").textContent = `-฿${discountTotal}`;
+    document.getElementById("review-discount-label").textContent = [...promoLabelsSeen].join(", ") || "Discount";
+    discountRow.classList.remove("hidden");
+    document.getElementById("review-subtotal-row").classList.remove("hidden");
+  } else {
+    discountRow.classList.add("hidden");
+    document.getElementById("review-subtotal-row").classList.add("hidden");
+  }
+
   const grandTotal = foodTotal + confirmedDeliveryFee;
   document.getElementById("review-food-total").textContent = `฿${foodTotal}`;
   document.getElementById("review-delivery").textContent =

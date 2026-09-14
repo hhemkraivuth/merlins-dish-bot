@@ -61,14 +61,19 @@ function isPromoLiveToday(promo) {
 
 // The single function both the LIFF app's price display and the
 // server's /api/place-order charge calculation should call for any
-// given item id. Returns { percentOff, label } if a promo applies
-// today, or null if the item is at full price right now.
+// given item id. Returns { percentOff, label, isItemSpecific } if a
+// promo applies today, or null if the item is at full price right now.
+// isItemSpecific distinguishes a per-item promo (e.g. "Bolognese 20%
+// off") from the storewide one -- the LIFF app uses this to decide
+// whether to show a per-item discount badge: item-specific promos get
+// one, the storewide promo never does (it's only surfaced as a single
+// line at checkout, not advertised item by item on the menu).
 function activePromoForItem(itemId) {
   const itemPromo = itemPromos[itemId];
   if (itemPromo) {
-    return isPromoLiveToday(itemPromo) ? { percentOff: itemPromo.percentOff, label: itemPromo.label } : null;
+    return isPromoLiveToday(itemPromo) ? { percentOff: itemPromo.percentOff, label: itemPromo.label, isItemSpecific: true } : null;
   }
-  return isPromoLiveToday(storewidePromo) ? { percentOff: storewidePromo.percentOff, label: storewidePromo.label } : null;
+  return isPromoLiveToday(storewidePromo) ? { percentOff: storewidePromo.percentOff, label: storewidePromo.label, isItemSpecific: false } : null;
 }
 
 // Applies activePromoForItem() to a price, rounding to the nearest

@@ -130,6 +130,7 @@ async function init() {
 function showAnnouncementScreen() {
   document.getElementById("announcement-headline").textContent = ANNOUNCEMENT.headline;
   document.getElementById("announcement-body").textContent = ANNOUNCEMENT.body;
+  document.getElementById("announcement-dates").textContent = ANNOUNCEMENT.dateRangeDisplay || "";
   showScreen("announcement-screen");
   const goToMenu = () => showScreen("menu-screen");
   document.getElementById("announcement-close").addEventListener("click", goToMenu, { once: true });

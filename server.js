@@ -1861,7 +1861,9 @@ app.get("/api/menu", (req, res) => {
     items,
     pastaOptions: PASTA_OPTIONS,
     sizeOptions: SIZE_OPTIONS,
-    announcement: isAnnouncementLiveToday() ? getAnnouncement() : null,
+    announcement: isAnnouncementLiveToday()
+      ? { ...getAnnouncement(), dateRangeDisplay: formatDateRangeLong({ start: getAnnouncement().startDate, end: getAnnouncement().endDate }) }
+      : null,
   });
 });
 

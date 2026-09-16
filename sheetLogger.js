@@ -15,6 +15,19 @@ const hasSheetCreds =
 
 let sheetsClient = null;
 
+// Every timestamp written to the sheet must read in Bangkok time, not
+// whatever timezone the server itself runs in (Railway defaults to UTC,
+// which is 7 hours behind -- e.g. 07:28 UTC shows as 14:28 in Bangkok).
+// toLocaleDateString/toLocaleTimeString alone use the SERVER's timezone,
+// so the timeZone option below is required, not optional.
+function bangkokDateAndTime() {
+  const now = new Date();
+  return {
+    date: now.toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" }),
+    time: now.toLocaleTimeString("en-GB", { timeZone: "Asia/Bangkok" }),
+  };
+}
+
 function getClient() {
   if (!hasSheetCreds) return null;
   if (sheetsClient) return sheetsClient;
@@ -67,10 +80,10 @@ async function logOrder(order) {
   const grossTotal = order.items.reduce((sum, i) => sum + (i.price + (i.discountAmount || 0)) * i.qty, 0);
   const totalDiscount = order.items.reduce((sum, i) => sum + (i.discountAmount || 0) * i.qty, 0);
 
-  const now = new Date();
+  const { date, time } = bangkokDateAndTime();
   const orderRow = [
-    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
-    now.toLocaleTimeString("en-GB"), // Time
+    date, // Date, DD/MM/YYYY, Bangkok time
+    time, // Time, Bangkok time
     itemsText,
     "LINE Bot",
     "Order",
@@ -87,8 +100,8 @@ async function logOrder(order) {
   if (totalDiscount > 0) {
     const label = order.promoLabel ? `Promo discount (${order.promoLabel})` : "Promo discount";
     rows.push([
-      now.toLocaleDateString("en-GB"),
-      now.toLocaleTimeString("en-GB"),
+      date,
+      time,
       label,
       "LINE Bot",
       "Discount",
@@ -124,10 +137,10 @@ async function logMenuTap({ userId, displayName, trigger }) {
   const client = getClient();
   if (!client) return; // Sheet logging not configured -- skip silently.
 
-  const now = new Date();
+  const { date, time } = bangkokDateAndTime();
   const row = [
-    now.toLocaleDateString("en-GB"), // Date, DD/MM/YYYY
-    now.toLocaleTimeString("en-GB"), // Time
+    date, // Date, DD/MM/YYYY, Bangkok time
+    time, // Time, Bangkok time
     userId,
     displayName || "",
     trigger, // e.g. "menu", "order", or the rich menu label

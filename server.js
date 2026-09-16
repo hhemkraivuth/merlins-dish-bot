@@ -102,6 +102,23 @@ function resetSession(userId) {
 // on restart -- if that ever matters to you, say so and we'll persist it.
 const soldOut = new Set();
 
+// Sold-out VARIANTS -- a specific size or pasta choice within a dish that
+// still has other sizes/choices available, e.g. "Large" Red Wine Beef
+// Stew sold out but "Regular" still fine, or "Bolognese with Lumache"
+// out but every other pasta choice for Bolognese still fine. Keyed as
+// "itemId:variantId" (e.g. "rws:large", "bolognese:lumache") -- variantId
+// is a SIZE_OPTIONS id for requiresSize dishes, or a PASTA_OPTIONS id for
+// requiresPasta dishes. Checked in ADDITION to soldOut/stockCount above,
+// never instead of -- marking the whole item sold out still takes the
+// whole thing off the menu regardless of what's in this set.
+const soldOutVariants = new Set();
+function variantKey(itemId, variantId) {
+  return `${itemId}:${variantId}`;
+}
+function isVariantUnavailable(itemId, variantId) {
+  return soldOutVariants.has(variantKey(itemId, variantId));
+}
+
 // Manual "close"/"open" override, controlled by you via LINE text commands
 // in your private group (see handleAdminCommand). Resets on restart --
 // if you close and the bot redeploys, it'll come back to normal hours
@@ -1458,7 +1475,10 @@ async function handleAdminCommand(replyToken, text) {
   if (lower === "stock") {
     const body = MENU.map((d) => {
       const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
-      return `${isUnavailable(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}${countText}`;
+      const variantList = d.requiresSize ? SIZE_OPTIONS : d.requiresPasta ? PASTA_OPTIONS : [];
+      const soldOutVariantNames = variantList.filter((v) => isVariantUnavailable(d.id, v.id)).map((v) => v.name);
+      const variantNote = soldOutVariantNames.length ? ` (${soldOutVariantNames.join(", ")} sold out)` : "";
+      return `${isUnavailable(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}${countText}${variantNote}`;
     }).join("\n");
     await client.replyMessage(replyToken, { type: "text", text: `Stock status:\n${body}` });
     return true;
@@ -1644,19 +1664,60 @@ async function handleAdminCommand(replyToken, text) {
   }
 
   if (lower.startsWith("soldout ")) {
+    // Two forms:
+    //  1. Whole item(s), comma-separated: "soldout a, b, c" (unchanged).
+    //  2. One specific size/pasta variant: "soldout rws large" or
+    //     "soldout bolognese lumache" -- exactly one item id followed by
+    //     exactly one size/pasta id, space-separated. This only affects
+    //     that one variant; other sizes/pasta choices for the same dish
+    //     stay available.
+    const rest = text.trim().slice("soldout ".length).trim();
+    const spaceParts = rest.split(/\s+/);
+    if (spaceParts.length === 2 && !rest.includes(",")) {
+      const [itemId, variantId] = spaceParts;
+      const dish = MENU.find((d) => d.id === itemId);
+      if (!dish) {
+        await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${itemId}". Text "stock" to see valid ids.` });
+        return true;
+      }
+      const validVariant = dish.requiresSize
+        ? SIZE_OPTIONS.find((s) => s.id === variantId)
+        : dish.requiresPasta
+        ? PASTA_OPTIONS.find((p) => p.id === variantId)
+        : null;
+      if (!validVariant) {
+        const validList = dish.requiresSize
+          ? SIZE_OPTIONS.map((s) => s.id).join(", ")
+          : dish.requiresPasta
+          ? PASTA_OPTIONS.map((p) => p.id).join(", ")
+          : null;
+        await client.replyMessage(replyToken, {
+          type: "text",
+          text: validList
+            ? `"${itemId}" doesn't have a size/pasta choice called "${variantId}". Valid choices: ${validList}.`
+            : `"${itemId}" doesn't have separate sizes or pasta choices -- use "soldout ${itemId}" to mark the whole item sold out instead.`,
+        });
+        return true;
+      }
+      soldOutVariants.add(variantKey(itemId, variantId));
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Marked "${validVariant.name}" sold out for "${dish.name}" only -- other sizes/choices for this dish stay available. Text "instock ${itemId} ${variantId}" to bring it back.`,
+      });
+      return true;
+    }
+
     // Accepts one or more item ids, comma-separated: "soldout a, b, c"
     // (spaces around commas are optional). Reports back which ones were
     // marked and which ids weren't recognised, so a typo in a long list
     // doesn't get silently skipped.
-    const ids = text
-      .trim()
-      .slice("soldout ".length)
+    const ids = rest
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
     if (ids.length === 0) {
-      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "soldout rws_r" or "soldout rws_r, dbs_r".` });
+      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "soldout rws" or "soldout rws, dbs". For one size/pasta choice only, use "soldout <itemId> <sizeOrPastaId>", e.g. "soldout rws large".` });
       return true;
     }
 
@@ -1678,16 +1739,31 @@ async function handleAdminCommand(replyToken, text) {
     return true;
   }
   if (lower.startsWith("instock ")) {
+    const rest = text.trim().slice("instock ".length).trim();
+    const spaceParts = rest.split(/\s+/);
+    if (spaceParts.length === 2 && !rest.includes(",")) {
+      const [itemId, variantId] = spaceParts;
+      const dish = MENU.find((d) => d.id === itemId);
+      const isKnownVariant = dish && (dish.requiresSize ? SIZE_OPTIONS : dish.requiresPasta ? PASTA_OPTIONS : []).some((v) => v.id === variantId);
+      if (isKnownVariant) {
+        soldOutVariants.delete(variantKey(itemId, variantId));
+        await client.replyMessage(replyToken, { type: "text", text: `Back in stock: "${variantId}" for "${dish.name}".` });
+        return true;
+      }
+      // Falls through to the whole-item form below if it's not a
+      // recognised variant -- e.g. "instock rws large" when "large"
+      // isn't valid just gets treated as two separate ids, same as
+      // before, rather than silently failing here.
+    }
+
     // Same comma-separated form as "soldout" above.
-    const ids = text
-      .trim()
-      .slice("instock ".length)
+    const ids = rest
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
     if (ids.length === 0) {
-      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "instock rws_r" or "instock rws_r, dbs_r".` });
+      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "instock rws" or "instock rws, dbs". For one size/pasta choice only, use "instock <itemId> <sizeOrPastaId>", e.g. "instock rws large".` });
       return true;
     }
 
@@ -1839,6 +1915,12 @@ async function handleFollow(userId, replyToken) {
 app.get("/api/menu", (req, res) => {
   const items = MENU.map((d) => {
     const promo = activePromoForItem(d.id);
+    // Which of this dish's own size/pasta choices are sold out
+    // individually (see "soldout <itemId> <variantId>" above) -- the
+    // client uses this to disable just that option in the dropdown,
+    // while every other size/pasta choice for the same dish stays pickable.
+    const variantList = d.requiresSize ? SIZE_OPTIONS : d.requiresPasta ? PASTA_OPTIONS : [];
+    const unavailableVariants = variantList.filter((v) => isVariantUnavailable(d.id, v.id)).map((v) => v.id);
     return {
       id: d.id,
       name: d.name,
@@ -1853,6 +1935,7 @@ app.get("/api/menu", (req, res) => {
       requiresPasta: !!d.requiresPasta,
       requiresSize: !!d.requiresSize,
       available: !isUnavailable(d.id),
+      unavailableVariants,
       remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
     };
   });
@@ -2034,6 +2117,25 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         success: false,
         error: "OUT_OF_STOCK",
         message: `Only ${remaining} of "${dish.name}" left. Please adjust the quantity and try again.`,
+      });
+    }
+    // Never trust the dropdown's disabled state alone -- re-check a
+    // sold-out size/pasta variant here too, in case of a stale page or a
+    // direct API call bypassing the UI.
+    if (dish.requiresSize && reqItem.sizeChoice && isVariantUnavailable(dish.id, reqItem.sizeChoice)) {
+      const size = SIZE_OPTIONS.find((s) => s.id === reqItem.sizeChoice);
+      return res.status(409).json({
+        success: false,
+        error: "OUT_OF_STOCK",
+        message: `"${size ? size.name : reqItem.sizeChoice}" ${dish.name} just sold out. Please pick a different size and try again.`,
+      });
+    }
+    if (dish.requiresPasta && reqItem.pastaChoice && isVariantUnavailable(dish.id, reqItem.pastaChoice)) {
+      const pasta = PASTA_OPTIONS.find((p) => p.id === reqItem.pastaChoice);
+      return res.status(409).json({
+        success: false,
+        error: "OUT_OF_STOCK",
+        message: `"${dish.name}" with ${pasta ? pasta.name : reqItem.pastaChoice} just sold out. Please pick a different pasta and try again.`,
       });
     }
     let price = dish.price;

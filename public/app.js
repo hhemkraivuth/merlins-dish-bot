@@ -255,10 +255,10 @@ function buildItemCard(dish) {
         ${stockNote}
         <select class="size-select" ${!dish.available ? "disabled" : ""}>
           <option value="">Choose serving size...</option>
-          ${SIZE_OPTIONS.map(
-            (s) =>
-              `<option value="${s.id}">${s.name}${s.mandatorySurcharge ? ` (+฿${s.mandatorySurcharge})` : ""}</option>`
-          ).join("")}
+          ${SIZE_OPTIONS.map((s) => {
+            const soldOut = (dish.unavailableVariants || []).includes(s.id);
+            return `<option value="${s.id}" ${soldOut ? "disabled" : ""}>${s.name}${s.mandatorySurcharge ? ` (+฿${s.mandatorySurcharge})` : ""}${soldOut ? " -- Sold out" : ""}</option>`;
+          }).join("")}
         </select>
         <div class="variant-row">
           <div class="stepper local-stepper" data-qty="0">
@@ -328,10 +328,10 @@ function buildItemCard(dish) {
         ${stockNote}
         <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
           <option value="">Choose pasta...</option>
-          ${PASTA_OPTIONS.map(
-            (p) =>
-              `<option value="${p.id}">${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}</option>`
-          ).join("")}
+          ${PASTA_OPTIONS.map((p) => {
+            const soldOut = (dish.unavailableVariants || []).includes(p.id);
+            return `<option value="${p.id}" ${soldOut ? "disabled" : ""}>${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}${soldOut ? " -- Sold out" : ""}</option>`;
+          }).join("")}
         </select>
         <div class="variant-row">
           <div class="stepper local-stepper" data-qty="0">

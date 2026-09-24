@@ -148,7 +148,17 @@
         <button type="button" class="pill active" data-timing="ASAP">🕐 Right away</button>
         <button type="button" class="pill" data-timing="SCHEDULED">📅 Schedule</button>
       </div>
-      <input type="text" id="schedule-text" class="text-input hidden" placeholder='e.g. "7 Sep, 6:30 PM"' />
+      <div id="schedule-picker" class="hidden">
+        <label for="schedule-date">Delivery date</label>
+        <input type="date" id="schedule-date" class="text-input" />
+        <p class="hint">Weekdays only (Monday to Friday)</p>
+
+        <label for="schedule-time">Delivery time</label>
+        <select id="schedule-time" class="text-input"></select>
+        <p class="hint">Between 11:00 and 21:00</p>
+
+        <div id="schedule-confirm-msg" class="hint hidden"></div>
+      </div>
     </section>
 
     <section class="field-group">

@@ -21,6 +21,17 @@
 //
 // You should not need to touch this file for day-to-day changes.
 // Prices, dish names, categories, and dish images live in menu.js instead.
+//
+// PRE-ORDER / SCHEDULED DELIVERY (added):
+//   Customers can schedule delivery for a future weekday time slot
+//   instead of ordering "right away". Slots run 11:00-21:00 every 30
+//   minutes, weekdays only, and must be at least 2 hours from the
+//   moment of ordering (same-day pre-orders are allowed if a slot is
+//   still >=2hrs out). Payment/slip verification works the exact same
+//   way and is available 24/7, even when the kitchen itself is closed
+//   -- only "right away" orders are blocked while closed. See
+//   scheduling.js for the date/time logic and scheduled-reminder.js
+//   for the private-group reminder pushes.
 // ============================================================
 
 require("dotenv").config();
@@ -31,6 +42,9 @@ const line = require("@line/bot-sdk");
 const axios = require("axios");
 const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
+const dayjs = require("dayjs");
+require("dayjs/plugin/utc");
+require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const { resolveItemId, resolveVariantId } = require("./aliases");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
@@ -46,6 +60,13 @@ const {
   TIER_LOW,
   TIER_HIGH,
 } = require("./customers");
+const {
+  TZ: SCHEDULE_TZ,
+  firstAvailableDate,
+  slotsForDate,
+  validateSchedule,
+} = require("./scheduling");
+const { markOrderForReminderJob, startReminderCron } = require("./scheduled-reminder");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -85,6 +106,19 @@ const config = {
 const client = new line.Client(config);
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
+
+// Pre-order reminder cron -- pushes "1 hour before" and "kitchen open"
+// reminders to your private group for scheduled orders. See
+// scheduled-reminder.js for the exact firing rules.
+startReminderCron(async (text) => {
+  const target = process.env.LINE_INTERNAL_TARGET_ID;
+  if (!target) return;
+  try {
+    await client.pushMessage(target, { type: "text", text });
+  } catch (err) {
+    console.error("Failed to push scheduled-order reminder:", err.message);
+  }
+});
 
 // In-memory cart/session per customer. Resets if the server restarts --
 // fine for a solo, evening-only operation.
@@ -151,6 +185,10 @@ let scheduledClosures = [];
 // (UTC+7, no DST). Closed during the 13:30-15:00 gap and on weekends by
 // default. This is the default until Lily changes it or texts a special
 // closing date into the private LINE group.
+//
+// NOTE: these "right away" hours are separate from pre-order scheduling
+// hours (see scheduling.js), which run 11:00-21:00 continuously (no
+// 13:30-15:00 gap) since a pre-order can be prepped ahead of time.
 const OPEN_HOUR = 11;
 const OPEN_MINUTE = 0;
 const LUNCH_CLOSE_HOUR = 13;
@@ -866,18 +904,94 @@ async function askLocationPrompt(replyToken) {
 async function handleTimingAsap(userId, replyToken) {
   const session = getSession(userId);
   session.timing = "ASAP";
+  session.scheduledFor = null;
   session.step = "awaiting_location";
   await askLocationPrompt(replyToken);
 }
 
+// Builds a quick-reply of weekday date options for the chat-bot scheduling
+// flow (mirrors the LIFF app's calendar picker, adapted for LINE quick
+// replies which can't show a real calendar widget). Offers the next 5
+// bookable weekdays starting from firstAvailableDate().
+function buildScheduleDateQuickReply() {
+  const items = [];
+  let d = firstAvailableDate();
+  while (items.length < 5) {
+    const label = d.format("ddd D/M"); // e.g. "Mon 29/9" -- fits LINE's 20-char quick-reply label limit
+    items.push({
+      type: "action",
+      action: { type: "postback", label, data: `scheduledate:${d.format("YYYY-MM-DD")}` },
+    });
+    d = d.add(1, "day");
+    while (![1, 2, 3, 4, 5].includes(d.day())) d = d.add(1, "day");
+  }
+  return cancelAndEditQuickReply(items);
+}
+
 async function handleTimingSchedule(userId, replyToken) {
   const session = getSession(userId);
-  session.step = "awaiting_schedule_text";
+  session.step = "awaiting_schedule_date";
   await client.replyMessage(replyToken, {
     type: "text",
-    text: "What date and time would you like it delivered? (e.g. \"7 Sep, 6:30 PM\")",
-    quickReply: cancelAndEditQuickReply(),
+    text: "Which day would you like it delivered? (Weekdays only)",
+    quickReply: buildScheduleDateQuickReply(),
   });
+}
+
+async function handleScheduleDateChosen(userId, replyToken, dateStr) {
+  const session = getSession(userId);
+  const d = dayjs.tz(dateStr, SCHEDULE_TZ);
+  const slots = slotsForDate(d);
+  if (slots.length === 0) {
+    // Slots can run out between listing the date and picking it (e.g.
+    // waited too long on a same-day option) -- send them back to pick
+    // a fresh date rather than dead-ending.
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: "Sorry, no delivery times are left for that day anymore. Please pick another day.",
+      quickReply: buildScheduleDateQuickReply(),
+    });
+    return;
+  }
+  session.pendingScheduleDate = dateStr;
+  session.step = "awaiting_schedule_time";
+  const timeItems = slots.map((hhmm) => ({
+    type: "action",
+    action: { type: "postback", label: hhmm, data: `scheduletime:${hhmm}` },
+  }));
+  // LINE quick replies cap at 13 items -- if more slots than that remain
+  // (e.g. a fresh future day with the full 11:00-21:00 range), show only
+  // the first 13; customers wanting a later slot can pick a different day
+  // or, realistically, 13 half-hour options from 11:00 already covers
+  // 11:00-17:00, which is plenty of choice in one screen.
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: `What time on ${d.format("DD/MM/YYYY")}?`,
+    quickReply: cancelAndEditQuickReply(timeItems.slice(0, 13)),
+  });
+}
+
+async function handleScheduleTimeChosen(userId, replyToken, timeStr) {
+  const session = getSession(userId);
+  const dateStr = session.pendingScheduleDate;
+  const validation = validateSchedule(dateStr, timeStr);
+  if (!validation.valid) {
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `${validation.reason} Let's pick a day again.`,
+      quickReply: buildScheduleDateQuickReply(),
+    });
+    return;
+  }
+  session.timing = "SCHEDULED";
+  session.scheduledFor = validation.scheduledFor; // dayjs instance
+  session.pendingScheduleDate = null;
+  session.step = "awaiting_location";
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: `You've selected delivery on ${validation.scheduledFor.format("DD/MM/YYYY")} at ${validation.scheduledFor.format("HH:mm")}. Please proceed to payment to confirm this order.`,
+  });
+  await askLocationPrompt(replyToken);
 }
 
 // ---------- delivery location & fee ----------
@@ -1120,7 +1234,9 @@ async function showFinalSummary(userId, replyToken) {
   const total = cartTotal(session.cart);
   const body = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
   const timingLine =
-    session.timing === "ASAP" ? "Timing: Right away" : `Timing: Scheduled for ${session.scheduleText}`;
+    session.timing === "ASAP"
+      ? "Timing: Right away"
+      : `Timing: Scheduled for ${session.scheduledFor.format("DD/MM/YYYY")} at ${session.scheduledFor.format("HH:mm")}`;
   const deliveryLine =
     session.needsManualFee === false
       ? session.deliveryFee === 0
@@ -1379,8 +1495,10 @@ async function finishOrder(userId, replyToken, session) {
     ? `${session.addressBase}${session.addressNote && session.addressNote !== "-" ? " -- " + session.addressNote : ""}`
     : session.address || "(not provided)";
 
-  const timingLine =
-    session.timing === "ASAP" ? "Right away" : `Scheduled for ${session.scheduleText}`;
+  const isScheduled = session.timing === "SCHEDULED" && session.scheduledFor;
+  const timingLine = isScheduled
+    ? `PRE-ORDER -- scheduled for ${session.scheduledFor.format("DD/MM/YYYY")} at ${session.scheduledFor.format("HH:mm")}`
+    : "Right away";
 
   const deliveryLine =
     session.needsManualFee === false
@@ -1398,7 +1516,7 @@ async function finishOrder(userId, replyToken, session) {
         {
           type: "text",
           text:
-            `🧾 NEW ORDER\n\n${orderText}\n\nFood total: ฿${foodTotal}\nTiming: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
+            `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"}\n\n${orderText}\n\nFood total: ฿${foodTotal}\nTiming: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
             `Name: ${session.name}\nAddress: ${fullAddress}\nPhone: ${session.phone}\n\n` +
             `Paid via: ${session.paymentMethod || "unknown"}\n` +
             `Slip amount: ฿${session.slipAmount}\nSlip ref: ${session.slipRef}`,
@@ -1425,6 +1543,17 @@ async function finishOrder(userId, replyToken, session) {
     slipUrl: session.slipUrl,
   });
 
+  // Register the reminder job for scheduled (chat-bot) orders too --
+  // same 1hr-before + conditional-11:00 rule as the LIFF app's orders.
+  if (isScheduled) {
+    markOrderForReminderJob({
+      orderId: session.slipRef,
+      customerName: session.name,
+      itemsSummary: orderText.replace(/\n/g, "; "),
+      scheduledFor: session.scheduledFor,
+    });
+  }
+
   const customerDeliveryLine =
     session.needsManualFee === false
       ? deliveryFeeAmount === 0
@@ -1432,9 +1561,20 @@ async function finishOrder(userId, replyToken, session) {
         : `Your delivery fee is ฿${deliveryFeeAmount}.`
       : "We'll confirm your delivery fee with you shortly.";
 
+  let confirmationText;
+  if (isScheduled) {
+    const prettyDate = session.scheduledFor.format("DD/MM/YYYY");
+    const prettyTime = session.scheduledFor.format("HH:mm");
+    confirmationText = isShopOpen()
+      ? `Payment received! Your order is confirmed for delivery on ${prettyDate} at ${prettyTime}. ${customerDeliveryLine} Thank you for ordering with Merlin's Dish.`
+      : `Payment received! The kitchen is currently closed, but your order is confirmed. We'll process it and have your meal delivered on ${prettyDate} at ${prettyTime}. ${customerDeliveryLine}`;
+  } else {
+    confirmationText = `All set! Your order is confirmed and on its way to the kitchen. ${customerDeliveryLine} Thank you for ordering from Merlin's Dish! 🍲`;
+  }
+
   await client.pushMessage(userId, {
     type: "text",
-    text: `All set! Your order is confirmed and on its way to the kitchen. ${customerDeliveryLine} Thank you for ordering from Merlin's Dish! 🍲`,
+    text: confirmationText,
   });
 
   resetSession(userId);
@@ -1957,8 +2097,9 @@ async function sendOrderAppLink(userId, replyToken, trigger) {
   // Customers can still browse the menu and get to the delivery step
   // while closed -- the LIFF app itself blocks them at "Continue" on
   // the delivery screen (see closed-screen in index.html/app.js) and
-  // /api/place-order blocks as a final backstop. So no isShopOpen()
-  // gate here; always show the Order Now card.
+  // /api/place-order blocks as a final backstop (for "right away" orders
+  // only -- scheduled/pre-orders are allowed through 24/7). So no
+  // isShopOpen() gate here; always show the Order Now card.
   const liffId = process.env.LIFF_ID;
   if (!liffId) {
     // LIFF isn't set up yet -- fall back to the old chat ordering flow
@@ -2065,6 +2206,38 @@ app.get("/api/shop-info", (req, res) => {
   });
 });
 
+// ---------- pre-order scheduling API (LIFF app) ----------
+
+// First bookable weekday, for the date picker's min-value/default.
+// Pre-order slots run 11:00-21:00 continuously -- unlike "right away"
+// hours, which have the 13:30-15:00 lunch gap -- since a scheduled
+// order can be prepped ahead of time.
+app.get("/api/schedule-availability", (req, res) => {
+  const first = firstAvailableDate();
+  res.json({ firstAvailableDate: first.format("YYYY-MM-DD") });
+});
+
+// Still-bookable "HH:mm" slots for a given date (?date=YYYY-MM-DD).
+app.get("/api/schedule-slots", (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: "Missing date." });
+
+  const d = dayjs.tz(date, SCHEDULE_TZ);
+  if (!d.isValid()) return res.status(400).json({ error: "Invalid date." });
+
+  const day = d.day();
+  if (day === 0 || day === 6) {
+    return res.status(400).json({ error: "That date is a weekend. Please choose a weekday." });
+  }
+
+  const slots = slotsForDate(d);
+  if (slots.length === 0) {
+    return res.status(400).json({ error: "No delivery slots remain for that date. Please choose another." });
+  }
+
+  res.json({ slots });
+});
+
 // Called when a LIFF customer is beyond the 5km flat-rate zone (0-2km free,
 // 2-5km flat ฿50 are both handled automatically and never reach this route).
 // Pings your private group and hands back a request id the app polls for the fee.
@@ -2150,15 +2323,32 @@ app.get("/api/customer-lookup", async (req, res) => {
 });
 
 app.post("/api/place-order", upload.single("slip"), async (req, res) => {
-  if (!isShopOpen()) {
-    return res.status(409).json({ success: false, error: "SHOP_CLOSED", message: closedMessage() });
-  }
-
   let order;
   try {
     order = JSON.parse(req.body.order || "{}");
   } catch (err) {
     return res.status(400).json({ success: false, error: "BAD_REQUEST", message: "Invalid order data." });
+  }
+
+  // The kitchen-hours gate only applies to "right away" orders. Scheduled
+  // (pre-order) orders can be paid for and confirmed 24 hours a day -- the
+  // kitchen just processes them once it opens. Validate the schedule
+  // itself here too, since it decides which branch of the confirmation
+  // logic further down applies. order.scheduledForMoment (a dayjs
+  // instance) is attached here for use later in this handler.
+  let scheduledForMoment = null;
+  if (order.timing === "SCHEDULED") {
+    const { date, time } = order.scheduledFor || {};
+    if (!date || !time) {
+      return res.status(400).json({ success: false, error: "MISSING_SCHEDULE", message: "Missing scheduled date/time." });
+    }
+    const validation = validateSchedule(date, time);
+    if (!validation.valid) {
+      return res.status(400).json({ success: false, error: "INVALID_SCHEDULE", message: validation.reason });
+    }
+    scheduledForMoment = validation.scheduledFor;
+  } else if (!isShopOpen()) {
+    return res.status(409).json({ success: false, error: "SHOP_CLOSED", message: closedMessage() });
   }
 
   if (!req.file) {
@@ -2395,7 +2585,10 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     ? await describeLocation(order.location.lat, order.location.lng)
     : order.addressText || "(not provided)";
   const addressWithNote = order.addressNote ? `${fullAddress} -- ${order.addressNote}` : fullAddress;
-  const timingLine = order.timing === "SCHEDULED" ? `Scheduled: ${order.scheduleText}` : "Right away";
+  const isScheduled = order.timing === "SCHEDULED" && scheduledForMoment;
+  const timingLine = isScheduled
+    ? `PRE-ORDER -- scheduled for ${scheduledForMoment.format("DD/MM/YYYY")} at ${scheduledForMoment.format("HH:mm")}`
+    : "Right away";
   const deliveryLine =
     deliveryFeeAmount === 0 && !order.needsManualFee
       ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
@@ -2410,7 +2603,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         {
           type: "text",
           text:
-            `🧾 NEW ORDER (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\n${discountLine}Timing: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
+            `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"} (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\n${discountLine}Timing: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
             `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
             `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
         },
@@ -2457,12 +2650,31 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     }
   }
 
+  // Register the reminder job for scheduled orders (1hr-before always,
+  // plus an 11:00 same-day-of-delivery heads-up only if it's not for
+  // today -- see scheduled-reminder.js for the exact rule).
+  if (isScheduled) {
+    markOrderForReminderJob({
+      orderId: slip.transRef,
+      customerName: order.name,
+      itemsSummary: orderText.replace(/\n/g, "; "),
+      scheduledFor: scheduledForMoment,
+    });
+  }
+
   if (order.lineUserId) {
+    let confirmationText;
+    if (isScheduled) {
+      const prettyDate = scheduledForMoment.format("DD/MM/YYYY");
+      const prettyTime = scheduledForMoment.format("HH:mm");
+      confirmationText = isShopOpen()
+        ? `Payment received! Your order is confirmed for delivery on ${prettyDate} at ${prettyTime}. Thank you for ordering with Merlin's Dish.`
+        : `Payment received! The kitchen is currently closed, but your order is confirmed. We'll process it and have your meal delivered on ${prettyDate} at ${prettyTime}.`;
+    } else {
+      confirmationText = `All set! Your order is confirmed and on its way to the kitchen. Thank you for ordering from Merlin's Dish! 🍲`;
+    }
     try {
-      await client.pushMessage(order.lineUserId, {
-        type: "text",
-        text: `All set! Your order is confirmed and on its way to the kitchen. Thank you for ordering from Merlin's Dish! 🍲`,
-      });
+      await client.pushMessage(order.lineUserId, { type: "text", text: confirmationText });
     } catch (err) {
       console.error("Failed to push confirmation to customer (order still succeeded):", err.message);
     }
@@ -2552,6 +2764,8 @@ async function handleEvent(event) {
     if (data === "clear") return handleClearCart(userId, event.replyToken);
     if (data === "timing:asap") return handleTimingAsap(userId, event.replyToken);
     if (data === "timing:schedule") return handleTimingSchedule(userId, event.replyToken);
+    if (data.startsWith("scheduledate:")) return handleScheduleDateChosen(userId, event.replyToken, data.slice("scheduledate:".length));
+    if (data.startsWith("scheduletime:")) return handleScheduleTimeChosen(userId, event.replyToken, data.slice("scheduletime:".length));
     if (data === "confirm_order") return askPaymentMethod(userId, event.replyToken);
     if (data === "edit_order") return showCartReview(userId, event.replyToken);
     if (data.startsWith("remove_line:")) return handleRemoveLine(userId, event.replyToken, data.slice("remove_line:".length));
@@ -2665,10 +2879,26 @@ async function handleEvent(event) {
         // "menu" (caught above) is still the way back into ordering.
         return;
 
-      case "awaiting_schedule_text":
-        session.scheduleText = text;
-        session.step = "awaiting_location";
-        return askLocationPrompt(event.replyToken);
+      case "awaiting_schedule_date":
+      case "awaiting_schedule_time":
+        // These steps are driven entirely by quick-reply postbacks
+        // (scheduledate:.../scheduletime:...) -- if the customer types
+        // free text here instead of tapping a button, just re-show the
+        // relevant picker rather than trying to parse their text.
+        if (session.step === "awaiting_schedule_date") {
+          await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: "Please tap one of the day options below.",
+            quickReply: buildScheduleDateQuickReply(),
+          });
+        } else {
+          await client.replyMessage(event.replyToken, {
+            type: "text",
+            text: "Please tap one of the time options above, or pick a different day.",
+            quickReply: buildScheduleDateQuickReply(),
+          });
+        }
+        return;
 
       case "awaiting_location": {
         const isMapsLink = /(google\.com\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(text);
@@ -2701,7 +2931,9 @@ async function handleEvent(event) {
 
       case "awaiting_address_note":
         session.addressNote = text;
-        if (!isShopOpen()) {
+        // Kitchen-hours gate only applies to "right away" orders --
+        // scheduled/pre-orders can proceed to payment 24/7.
+        if (session.timing !== "SCHEDULED" && !isShopOpen()) {
           await client.replyMessage(event.replyToken, { type: "text", text: closedMessage() });
           return;
         }

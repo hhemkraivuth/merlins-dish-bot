@@ -24,7 +24,12 @@ let LINE_USER_ID = null;
 let cart = {};
 
 let timing = "ASAP";
-let scheduleText = "";
+// Pre-order date/time, picked via the calendar + dropdown on the delivery
+// screen. Both are set once the customer picks a date and the slots load;
+// scheduleTime resets whenever scheduleDate changes since valid times
+// depend on the date.
+let scheduleDate = null; // "YYYY-MM-DD"
+let scheduleTime = null; // "HH:mm"
 let deliveryLocation = null; // { lat, lng } or null
 let manualAddress = "";
 let needsManualFee = null; // true/false/null (unknown yet) -- only true beyond the flat-rate tiers (>5km)
@@ -54,6 +59,17 @@ let redeemTier = null; // 5 | 10 -- which tier is being redeemed, when eligible 
 let selectedRewardDishId = null; // tier 10 only -- which dish from the dropdown
 let selectedRewardPastaId = "rigatoni"; // only relevant if that dish requiresPasta
 let lastLookedUpPhone = "";
+
+// ---------- small formatting helpers ----------
+
+function digitsOnly(str) {
+  return (str || "").replace(/\D/g, "");
+}
+
+function formatDateDDMMYYYY(isoDate) {
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
+}
 
 // ---------- screen navigation ----------
 
@@ -452,10 +468,6 @@ function cartTotal() {
 }
 
 // ---------- loyalty lookup ----------
-
-function digitsOnly(str) {
-  return (str || "").replace(/\D/g, "");
-}
 
 function updateCheckRewardEnabled() {
   const name = document.getElementById("cart-name-input").value.trim();
@@ -924,6 +936,67 @@ function setDeliveryLocation(lat, lng) {
   }
 }
 
+// ---------- pre-order scheduling (date + time picker) ----------
+
+// Loads the first bookable weekday from the server and sets it as the
+// date input's min/default, then loads that day's time slots. Called
+// when the customer switches the timing pill to "Schedule".
+async function initSchedulePicker() {
+  try {
+    const res = await fetch("/api/schedule-availability");
+    const data = await res.json();
+    const dateInput = document.getElementById("schedule-date");
+    dateInput.min = data.firstAvailableDate;
+    dateInput.value = data.firstAvailableDate;
+    scheduleDate = data.firstAvailableDate;
+    await loadScheduleSlots(scheduleDate);
+  } catch (err) {
+    console.error("Failed to load schedule availability:", err);
+    showToast("Couldn't load available delivery dates. Please try again.", true);
+  }
+}
+
+// Fetches the still-bookable time slots for a given date and fills the
+// time dropdown. If the date turns out to be invalid (weekend, or a
+// same-day date whose slots have all fallen inside the 2-hour lead time
+// since the picker was opened), bounces back to the first valid date
+// automatically rather than leaving the customer stuck.
+async function loadScheduleSlots(dateStr) {
+  const timeSelect = document.getElementById("schedule-time");
+  timeSelect.innerHTML = "<option>Loading...</option>";
+  try {
+    const res = await fetch(`/api/schedule-slots?date=${encodeURIComponent(dateStr)}`);
+    const data = await res.json();
+    if (data.error) {
+      showToast(data.error, true);
+      const res2 = await fetch("/api/schedule-availability");
+      const data2 = await res2.json();
+      document.getElementById("schedule-date").value = data2.firstAvailableDate;
+      scheduleDate = data2.firstAvailableDate;
+      return loadScheduleSlots(scheduleDate);
+    }
+    scheduleDate = dateStr;
+    timeSelect.innerHTML = data.slots.map((s) => `<option value="${s}">${s}</option>`).join("");
+    scheduleTime = data.slots[0] || null;
+    updateScheduleConfirmMsg();
+  } catch (err) {
+    console.error("Failed to load schedule slots:", err);
+    showToast("Couldn't load delivery times. Please try again.", true);
+  }
+}
+
+// Shows "You've selected delivery on DD/MM/YYYY at HH:mm..." once both a
+// date and a time are picked.
+function updateScheduleConfirmMsg() {
+  const msg = document.getElementById("schedule-confirm-msg");
+  if (!scheduleDate || !scheduleTime) {
+    msg.classList.add("hidden");
+    return;
+  }
+  msg.classList.remove("hidden");
+  msg.innerHTML = `You've selected delivery on <strong>${formatDateDDMMYYYY(scheduleDate)}</strong> at <strong>${scheduleTime}</strong>.<br>Please proceed to payment to confirm this order.`;
+}
+
 // ---------- delivery fee confirmation (>5km orders) ----------
 
 let feePollActive = false;
@@ -1035,7 +1108,11 @@ function renderReviewScreen() {
   document.getElementById("review-delivery").textContent =
     confirmedDeliveryFee === 0 ? "FREE (within 2km)" : `฿${confirmedDeliveryFee}`;
   document.getElementById("review-timing").textContent =
-    timing === "ASAP" ? "Right away" : `Scheduled: ${scheduleText || "(not set)"}`;
+    timing === "ASAP"
+      ? "Right away"
+      : scheduleDate && scheduleTime
+      ? `Scheduled: ${formatDateDDMMYYYY(scheduleDate)} at ${scheduleTime}`
+      : "Scheduled: (not set)";
   document.getElementById("review-grand-total").textContent = `฿${grandTotal}`;
 
   document.getElementById("pay-bank-info").textContent =
@@ -1073,6 +1150,12 @@ function updatePlaceOrderEnabled() {
 async function submitOrder() {
   const btn = document.getElementById("place-order-btn");
   const status = document.getElementById("submit-status");
+
+  if (timing === "SCHEDULED" && (!scheduleDate || !scheduleTime)) {
+    status.textContent = "Please pick a delivery date and time.";
+    return;
+  }
+
   btn.disabled = true;
   status.textContent = "Verifying your payment…";
 
@@ -1080,7 +1163,7 @@ async function submitOrder() {
     lineUserId: LINE_USER_ID,
     items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice, sizeChoice: l.sizeChoice, isRewardLine: !!l.isRewardLine })),
     timing,
-    scheduleText,
+    scheduledFor: timing === "SCHEDULED" ? { date: scheduleDate, time: scheduleTime } : null,
     location: deliveryLocation,
     addressText: manualAddress || null,
     addressNote: document.getElementById("address-note").value.trim(),
@@ -1108,7 +1191,9 @@ async function submitOrder() {
     }
 
     document.getElementById("confirm-message").textContent =
-      "All set! The food will be with you shortly. You can close this window.";
+      timing === "SCHEDULED" && scheduleDate && scheduleTime
+        ? `Payment received! Your order is confirmed for delivery on ${formatDateDDMMYYYY(scheduleDate)} at ${scheduleTime}.`
+        : "All set! The food will be with you shortly. You can close this window.";
     showScreen("confirm-screen");
   } catch (err) {
     console.error(err);
@@ -1120,7 +1205,8 @@ async function submitOrder() {
 function resetOrder() {
   cart = {};
   timing = "ASAP";
-  scheduleText = "";
+  scheduleDate = null;
+  scheduleTime = null;
   deliveryLocation = null;
   manualAddress = "";
   needsManualFee = null;
@@ -1129,7 +1215,9 @@ function resetOrder() {
   feePollActive = false;
   distanceKm = null;
   slipFile = null;
-  document.getElementById("schedule-text").value = "";
+  document.getElementById("schedule-picker").classList.add("hidden");
+  document.getElementById("schedule-confirm-msg").classList.add("hidden");
+  document.querySelectorAll("[data-timing]").forEach((b) => b.classList.toggle("active", b.dataset.timing === "ASAP"));
   document.getElementById("manual-address").value = "";
   document.getElementById("address-note").value = "";
   document.getElementById("cart-name-input").value = "";
@@ -1209,14 +1297,26 @@ function wireStaticEvents() {
   });
 
   document.querySelectorAll("[data-timing]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       timing = btn.dataset.timing;
       document.querySelectorAll("[data-timing]").forEach((b) => b.classList.toggle("active", b === btn));
-      document.getElementById("schedule-text").classList.toggle("hidden", timing !== "SCHEDULED");
+      document.getElementById("schedule-picker").classList.toggle("hidden", timing !== "SCHEDULED");
+      if (timing === "SCHEDULED") {
+        await initSchedulePicker();
+      } else {
+        scheduleDate = null;
+        scheduleTime = null;
+        document.getElementById("schedule-confirm-msg").classList.add("hidden");
+      }
     });
   });
-  document.getElementById("schedule-text").addEventListener("input", (e) => {
-    scheduleText = e.target.value;
+
+  document.getElementById("schedule-date").addEventListener("change", async (e) => {
+    await loadScheduleSlots(e.target.value);
+  });
+  document.getElementById("schedule-time").addEventListener("change", (e) => {
+    scheduleTime = e.target.value;
+    updateScheduleConfirmMsg();
   });
 
   document.getElementById("use-my-location-btn").addEventListener("click", () => useMyLocation(false));
@@ -1241,7 +1341,14 @@ function wireStaticEvents() {
       flashInvalid("address-note");
       return;
     }
-    if (SHOP_INFO.isOpen === false) {
+    if (timing === "SCHEDULED" && (!scheduleDate || !scheduleTime)) {
+      showToast("Please pick a delivery date and time.", true);
+      flashInvalid("schedule-picker");
+      return;
+    }
+    // Kitchen-hours gate only applies to "right away" orders -- scheduled
+    // (pre-order) orders can proceed to payment 24/7.
+    if (timing !== "SCHEDULED" && SHOP_INFO.isOpen === false) {
       document.getElementById("closed-message").textContent =
         SHOP_INFO.closedMessage || "Merlin's Dish is open Monday-Friday, 11:00-21:00.";
       showScreen("closed-screen");

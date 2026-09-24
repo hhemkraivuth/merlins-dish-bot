@@ -32,6 +32,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 const cloudinary = require("cloudinary").v2;
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
+const { resolveItemId, resolveVariantId } = require("./aliases");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
 const { logOrder, logMenuTap } = require("./sheetLogger");
@@ -112,11 +113,20 @@ const soldOut = new Set();
 // never instead of -- marking the whole item sold out still takes the
 // whole thing off the menu regardless of what's in this set.
 const soldOutVariants = new Set();
+// Remaining stock per variant, set via "setstock <itemId> <sizeOrPastaId> <n>".
+// Mirrors the whole-item `stockCount` map below but keyed the same way as
+// soldOutVariants. If a variant has no entry here, it's unlimited (subject
+// to the whole item's own stockCount/soldOut, checked separately).
+const variantStockCount = new Map();
 function variantKey(itemId, variantId) {
   return `${itemId}:${variantId}`;
 }
+function remainingVariantStock(itemId, variantId) {
+  const key = variantKey(itemId, variantId);
+  return variantStockCount.has(key) ? variantStockCount.get(key) : Infinity;
+}
 function isVariantUnavailable(itemId, variantId) {
-  return soldOutVariants.has(variantKey(itemId, variantId));
+  return soldOutVariants.has(variantKey(itemId, variantId)) || remainingVariantStock(itemId, variantId) <= 0;
 }
 
 // Manual "close"/"open" override, controlled by you via LINE text commands
@@ -283,8 +293,27 @@ const stockCount = new Map();
 function remainingStock(itemId) {
   return stockCount.has(itemId) ? stockCount.get(itemId) : Infinity;
 }
+// True when a dish has size/pasta variants AND every one of them is
+// individually sold out (soldOutVariants) -- i.e. nothing orderable is
+// left even though the dish itself was never marked sold out at the
+// item level. Dishes with no variants (requiresSize/requiresPasta both
+// false) always return false here, since they have nothing to check.
+function allVariantsSoldOut(itemId) {
+  const dish = MENU.find((d) => d.id === itemId);
+  if (!dish) return false;
+  const variantList = dish.requiresSize ? SIZE_OPTIONS : dish.requiresPasta ? PASTA_OPTIONS : [];
+  if (variantList.length === 0) return false;
+  return variantList.every((v) => isVariantUnavailable(itemId, v.id));
+}
+
+// The single source of truth for "can a customer order this dish right
+// now" -- used for the customer-facing menu (availableMenu, category
+// listing, LIFF /api/menu, checkout re-validation) AND for the admin
+// "stock" display's tick/cross. Covers all three ways a dish can become
+// unorderable: explicit "soldout <id>", remaining count hitting 0, or
+// every one of its size/pasta variants being individually sold out.
 function isUnavailable(itemId) {
-  return soldOut.has(itemId) || remainingStock(itemId) <= 0;
+  return soldOut.has(itemId) || remainingStock(itemId) <= 0 || allVariantsSoldOut(itemId);
 }
 
 // ---------- small helpers ----------
@@ -1476,29 +1505,85 @@ async function handleAdminCommand(replyToken, text) {
     const body = MENU.map((d) => {
       const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
       const variantList = d.requiresSize ? SIZE_OPTIONS : d.requiresPasta ? PASTA_OPTIONS : [];
-      const soldOutVariantNames = variantList.filter((v) => isVariantUnavailable(d.id, v.id)).map((v) => v.name);
+      const soldOutVariantNames = variantList
+        .filter((v) => isVariantUnavailable(d.id, v.id))
+        .map((v) => {
+          const remaining = remainingVariantStock(d.id, v.id);
+          return Number.isFinite(remaining) && remaining > 0 ? `${v.name} [${remaining} left]` : v.name;
+        });
       const variantNote = soldOutVariantNames.length ? ` (${soldOutVariantNames.join(", ")} sold out)` : "";
+      // isUnavailable() already folds in "all variants sold out", so the
+      // tick/cross here always matches whether a customer can actually
+      // order this dish, not just whether it was explicitly "soldout"-ed.
       return `${isUnavailable(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}${countText}${variantNote}`;
     }).join("\n");
     await client.replyMessage(replyToken, { type: "text", text: `Stock status:\n${body}` });
     return true;
   }
   if (lower.startsWith("setstock ")) {
+    // Two forms, same shape as "soldout":
+    //  1. Whole item: "setstock rws 10" -- sets the item's overall count.
+    //  2. One size/pasta variant: "setstock rws l 2" -- sets the count
+    //     for just that variant. Hitting 0 auto-marks that variant sold
+    //     out (soldOutVariants), same as whole-item setstock does for
+    //     soldOut; going above 0 again clears it. All keywords resolved
+    //     through aliases.js.
     const parts = text.trim().split(/\s+/);
-    const id = parts[1];
+    const typedItem = parts[1];
+    const itemId = resolveItemId(typedItem, MENU);
+    const dish = itemId ? MENU.find((d) => d.id === itemId) : null;
+    if (!dish) {
+      await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${typedItem}". Text "stock" to see valid ids.` });
+      return true;
+    }
+
+    // 3-part form: "setstock <item> <variant> <n>"
+    if (parts.length === 4) {
+      const typedVariant = parts[2];
+      const n = parseInt(parts[3], 10);
+      const variantId = resolveVariantId(dish, typedVariant);
+      const validVariant = variantId
+        ? (dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS).find((v) => v.id === variantId)
+        : null;
+      if (!validVariant) {
+        const validList = dish.requiresSize
+          ? SIZE_OPTIONS.map((s) => s.id).join(", ")
+          : dish.requiresPasta
+          ? PASTA_OPTIONS.map((p) => p.id).join(", ")
+          : null;
+        await client.replyMessage(replyToken, {
+          type: "text",
+          text: validList
+            ? `"${dish.id}" doesn't have a size/pasta choice called "${typedVariant}". Valid choices: ${validList}.`
+            : `"${dish.id}" doesn't have separate sizes or pasta choices -- use "setstock ${dish.id} ${typedVariant}" to set the whole item's stock instead.`,
+        });
+        return true;
+      }
+      if (isNaN(n)) {
+        await client.replyMessage(replyToken, { type: "text", text: `Please send a number, e.g. "setstock ${dish.id} ${variantId === "regular" || variantId === "large" ? (variantId === "regular" ? "r" : "l") : variantId} 10".` });
+        return true;
+      }
+      const key = variantKey(dish.id, variantId);
+      variantStockCount.set(key, n);
+      if (n <= 0) soldOutVariants.add(key);
+      else soldOutVariants.delete(key);
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `"${validVariant.name}" stock for "${dish.name}" set to ${n}${n <= 0 ? " (marked sold out for this variant only)" : ""}.`,
+      });
+      return true;
+    }
+
+    // 2-part form: "setstock <item> <n>" -- whole item, unchanged behaviour.
     const n = parseInt(parts[2], 10);
-    if (!MENU.find((d) => d.id === id)) {
-      await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${id}". Text "stock" to see valid ids.` });
-      return true;
-    }
     if (isNaN(n)) {
-      await client.replyMessage(replyToken, { type: "text", text: `Please send a number, e.g. "setstock rws_r 10".` });
+      await client.replyMessage(replyToken, { type: "text", text: `Please send a number, e.g. "setstock ${dish.id} 10", or "setstock ${dish.id} <r|l> 10" for one size only.` });
       return true;
     }
-    stockCount.set(id, n);
-    if (n <= 0) soldOut.add(id);
-    else soldOut.delete(id);
-    await client.replyMessage(replyToken, { type: "text", text: `"${id}" stock set to ${n}.` });
+    stockCount.set(dish.id, n);
+    if (n <= 0) soldOut.add(dish.id);
+    else soldOut.delete(dish.id);
+    await client.replyMessage(replyToken, { type: "text", text: `"${dish.id}" stock set to ${n}.` });
     return true;
   }
   // ---- Promo commands ----
@@ -1666,24 +1751,26 @@ async function handleAdminCommand(replyToken, text) {
   if (lower.startsWith("soldout ")) {
     // Two forms:
     //  1. Whole item(s), comma-separated: "soldout a, b, c" (unchanged).
-    //  2. One specific size/pasta variant: "soldout rws large" or
-    //     "soldout bolognese lumache" -- exactly one item id followed by
-    //     exactly one size/pasta id, space-separated. This only affects
-    //     that one variant; other sizes/pasta choices for the same dish
-    //     stay available.
+    //  2. One specific size/pasta variant: "soldout rws l" or
+    //     "soldout bolo luma" -- exactly one item keyword followed by
+    //     exactly one size/pasta keyword, space-separated. This only
+    //     affects that one variant; other sizes/pasta choices for the
+    //     same dish stay available. Both keywords are resolved through
+    //     aliases.js, so any of your shorthand words work here, not just
+    //     the internal ids.
     const rest = text.trim().slice("soldout ".length).trim();
     const spaceParts = rest.split(/\s+/);
     if (spaceParts.length === 2 && !rest.includes(",")) {
-      const [itemId, variantId] = spaceParts;
-      const dish = MENU.find((d) => d.id === itemId);
+      const [typedItem, typedVariant] = spaceParts;
+      const itemId = resolveItemId(typedItem, MENU);
+      const dish = itemId ? MENU.find((d) => d.id === itemId) : null;
       if (!dish) {
-        await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${itemId}". Text "stock" to see valid ids.` });
+        await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${typedItem}". Text "stock" to see valid ids.` });
         return true;
       }
-      const validVariant = dish.requiresSize
-        ? SIZE_OPTIONS.find((s) => s.id === variantId)
-        : dish.requiresPasta
-        ? PASTA_OPTIONS.find((p) => p.id === variantId)
+      const variantId = resolveVariantId(dish, typedVariant);
+      const validVariant = variantId
+        ? (dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS).find((v) => v.id === variantId)
         : null;
       if (!validVariant) {
         const validList = dish.requiresSize
@@ -1694,42 +1781,44 @@ async function handleAdminCommand(replyToken, text) {
         await client.replyMessage(replyToken, {
           type: "text",
           text: validList
-            ? `"${itemId}" doesn't have a size/pasta choice called "${variantId}". Valid choices: ${validList}.`
-            : `"${itemId}" doesn't have separate sizes or pasta choices -- use "soldout ${itemId}" to mark the whole item sold out instead.`,
+            ? `"${dish.id}" doesn't have a size/pasta choice called "${typedVariant}". Valid choices: ${validList}.`
+            : `"${dish.id}" doesn't have separate sizes or pasta choices -- use "soldout ${dish.id}" to mark the whole item sold out instead.`,
         });
         return true;
       }
-      soldOutVariants.add(variantKey(itemId, variantId));
+      soldOutVariants.add(variantKey(dish.id, variantId));
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Marked "${validVariant.name}" sold out for "${dish.name}" only -- other sizes/choices for this dish stay available. Text "instock ${itemId} ${variantId}" to bring it back.`,
+        text: `Marked "${validVariant.name}" sold out for "${dish.name}" only -- other sizes/choices for this dish stay available. Text "instock ${dish.id} ${variantId}" to bring it back.`,
       });
       return true;
     }
 
-    // Accepts one or more item ids, comma-separated: "soldout a, b, c"
-    // (spaces around commas are optional). Reports back which ones were
-    // marked and which ids weren't recognised, so a typo in a long list
+    // Accepts one or more item keywords, comma-separated: "soldout a, b, c"
+    // (spaces around commas are optional). Each is resolved through
+    // aliases.js. Reports back which ones were marked (by canonical id)
+    // and which ones weren't recognised, so a typo in a long list
     // doesn't get silently skipped.
-    const ids = rest
+    const typedIds = rest
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (ids.length === 0) {
-      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "soldout rws" or "soldout rws, dbs". For one size/pasta choice only, use "soldout <itemId> <sizeOrPastaId>", e.g. "soldout rws large".` });
+    if (typedIds.length === 0) {
+      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "soldout rws" or "soldout rws, dbs". For one size/pasta choice only, use "soldout <itemId> <sizeOrPastaId>", e.g. "soldout rws l".` });
       return true;
     }
 
     const marked = [];
     const unknown = [];
-    for (const id of ids) {
-      if (!MENU.find((d) => d.id === id)) {
-        unknown.push(id);
+    for (const typed of typedIds) {
+      const resolved = resolveItemId(typed, MENU);
+      if (!resolved) {
+        unknown.push(typed);
         continue;
       }
-      soldOut.add(id);
-      marked.push(id);
+      soldOut.add(resolved);
+      marked.push(resolved);
     }
 
     const lines = [];
@@ -1742,36 +1831,50 @@ async function handleAdminCommand(replyToken, text) {
     const rest = text.trim().slice("instock ".length).trim();
     const spaceParts = rest.split(/\s+/);
     if (spaceParts.length === 2 && !rest.includes(",")) {
-      const [itemId, variantId] = spaceParts;
-      const dish = MENU.find((d) => d.id === itemId);
-      const isKnownVariant = dish && (dish.requiresSize ? SIZE_OPTIONS : dish.requiresPasta ? PASTA_OPTIONS : []).some((v) => v.id === variantId);
+      const [typedItem, typedVariant] = spaceParts;
+      const itemId = resolveItemId(typedItem, MENU);
+      const dish = itemId ? MENU.find((d) => d.id === itemId) : null;
+      const variantId = dish ? resolveVariantId(dish, typedVariant) : null;
+      const isKnownVariant = dish && variantId && (dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS).some((v) => v.id === variantId);
       if (isKnownVariant) {
-        soldOutVariants.delete(variantKey(itemId, variantId));
+        soldOutVariants.delete(variantKey(dish.id, variantId));
         await client.replyMessage(replyToken, { type: "text", text: `Back in stock: "${variantId}" for "${dish.name}".` });
         return true;
       }
       // Falls through to the whole-item form below if it's not a
-      // recognised variant -- e.g. "instock rws large" when "large"
-      // isn't valid just gets treated as two separate ids, same as
-      // before, rather than silently failing here.
+      // recognised variant -- e.g. "instock rws l" when "l" isn't valid
+      // for that dish just gets treated as two separate item keywords,
+      // same as before, rather than silently failing here.
     }
 
     // Same comma-separated form as "soldout" above.
-    const ids = rest
+    const typedIds = rest
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (ids.length === 0) {
-      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "instock rws" or "instock rws, dbs". For one size/pasta choice only, use "instock <itemId> <sizeOrPastaId>", e.g. "instock rws large".` });
+    if (typedIds.length === 0) {
+      await client.replyMessage(replyToken, { type: "text", text: `Please include at least one item id, e.g. "instock rws" or "instock rws, dbs". For one size/pasta choice only, use "instock <itemId> <sizeOrPastaId>", e.g. "instock rws l".` });
       return true;
     }
 
-    for (const id of ids) {
-      soldOut.delete(id);
-      stockCount.delete(id);
+    const resolvedIds = [];
+    const unknown = [];
+    for (const typed of typedIds) {
+      const resolved = resolveItemId(typed, MENU);
+      if (!resolved) {
+        unknown.push(typed);
+        continue;
+      }
+      soldOut.delete(resolved);
+      stockCount.delete(resolved);
+      resolvedIds.push(resolved);
     }
-    await client.replyMessage(replyToken, { type: "text", text: `Back in stock (no limit set): ${ids.join(", ")}` });
+
+    const lines = [];
+    if (resolvedIds.length) lines.push(`Back in stock (no limit set): ${resolvedIds.join(", ")}`);
+    if (unknown.length) lines.push(`Unknown item id${unknown.length > 1 ? "s" : ""} (skipped, text "stock" to see valid ids): ${unknown.join(", ")}`);
+    await client.replyMessage(replyToken, { type: "text", text: lines.join("\n") });
     return true;
   }
   return false;

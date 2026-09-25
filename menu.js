@@ -112,84 +112,15 @@ const SIZE_OPTIONS = [
 ];
 
 // ============================================================
-// ADMIN SHORT ALIASES (for "soldout"/"instock" texts from Lily's LINE)
+// NOTE ON ADMIN ALIASES
 // ============================================================
-// Purpose: let Lily type a short word from the kitchen instead of the
-// full item id (and, for rws/dbs, instead of the id+size combo).
-//
-// - Left side: the short word she types, e.g. "soldout juza"
-// - Right side: the REAL id (or "id_size" for size-based dishes) it maps to
-//
-// Rules for adding a new alias:
-//   1. Pick a short word not already used as a key below.
-//   2. Point it at an id from MENU above (or PASTA_OPTIONS/SIZE_OPTIONS
-//      combos -- see rws/dbs pattern).
-//   3. For rws/dbs (requiresSize: true), soldout/instock must target one
-//      size specifically -- there's no single "whole dish" stock flag for
-//      these two. Marking a whole dish sold out regardless of size means
-//      aliasing BOTH sizes, e.g. "rws" -> "rws_regular" and a separate
-//      "rwsl" -> "rws_large" if she ever needs to close only Large.
-//      Below, "rws" and "dbs" are wired to close BOTH sizes at once via
-//      ADMIN_ALIAS_GROUPS, since that's what she actually asked for
-//      ("Soldout rws" should just close the whole stew).
+// Short-word admin aliases for soldout/instock/setstock/stock commands
+// (e.g. "juza" -> drink_juza_sparkling, "bolo" -> bolognese) live in
+// aliases.js, NOT here. server.js imports resolveItemId/resolveVariantId
+// exclusively from "./aliases" -- anything defined only in this file
+// under an "admin alias" style export is never read by server.js. If
+// you're adding or renaming a short word, edit aliases.js's
+// ITEM_ALIASES / SIZE_ALIASES / PASTA_ALIASES tables instead.
 // ============================================================
 
-// Simple 1:1 aliases -- short word maps to exactly one real id.
-const ADMIN_ID_ALIASES = {
-  bacon: "bacon_steak",
-  tuscan: "tuscan",              // already short; kept for consistency
-  ragu: "ragu",                  // already short; kept for consistency
-  bolo: "bolognese",
-  chix: "chicken_soup",
-  brocs: "pecorino_soup",
-
-  // Extras (loose pasta)
-  tubet: "extra_tubetti",
-  radi: "extra_radiatori",
-  riga: "extra_rigatoni",
-  luma: "extra_lumache",
-  ling: "extra_linguine",
-  spa: "extra_spaghetti",
-
-  // Drinks
-  perrier: "drink_maisonperrier_forever_lemon",
-  enziero: "drink_enziero_golden_apple_yuzu",
-  juza: "drink_juza_sparkling",
-  coke: "drink_coke_original",
-  cokez: "drink_coke_zero",
-  eden: "drink_eden_green_apple",
-  prebom: "drink_prebo_classic_muscat",
-  preboc: "drink_prebo_cream_cloud",
-  aw: "drink_aw_rootbeer",
-  sour: "drink_sourhours_ginger_lemon",
-};
-
-// Group aliases -- one short word closes/opens MULTIPLE real ids at once.
-// This is for rws/dbs: typing "soldout rws" closes both Regular and Large
-// in one go, instead of needing "soldout rws_regular" AND "soldout rws_large".
-const ADMIN_ALIAS_GROUPS = {
-  rws: ["rws_regular", "rws_large"],
-  dbs: ["dbs_regular", "dbs_large"],
-};
-
-// Size sub-selector -- used when a group alias is followed by a second
-// token, e.g. "soldout rws l" or "instock dbs r". Only applies to ids
-// listed in ADMIN_ALIAS_GROUPS above. Maps the short size letter to the
-// suffix used in that group's id list ("rws_regular" / "rws_large").
-//   "soldout rws"    -> closes rws_regular AND rws_large (the whole group)
-//   "soldout rws l"  -> closes rws_large only
-//   "soldout rws r"  -> closes rws_regular only
-const ADMIN_GROUP_SIZE_SUFFIXES = {
-  r: "regular",
-  l: "large",
-};
-
-module.exports = {
-  MENU,
-  CATEGORIES,
-  PASTA_OPTIONS,
-  SIZE_OPTIONS,
-  ADMIN_ID_ALIASES,
-  ADMIN_ALIAS_GROUPS,
-  ADMIN_GROUP_SIZE_SUFFIXES,
-};
+module.exports = { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS };

@@ -213,10 +213,11 @@ function bangkokDateStr(date) {
   return `${y}-${m}-${d}`;
 }
 
-// Parses "D/M" or "D/M-D/M" into { start, end } YYYY-MM-DD strings, picking
-// the current year, or next year if that date has already passed this year
-// (so closing dates typed in December for January still land correctly).
-// Returns null if the text doesn't look like a valid date/range.
+// Parses "D/M" or "D/M-D/M" into { start, end, startWasToday } YYYY-MM-DD
+// strings, picking the current year, or next year if that date has
+// already passed this year (so closing dates typed in December for
+// January still land correctly). Returns null if the text doesn't look
+// like a valid date/range.
 //
 // The START token (only) also accepts the literal word "today" (any
 // case), which resolves to the current Bangkok-time date. This works
@@ -226,6 +227,17 @@ function bangkokDateStr(date) {
 // another within the same campaign period just works. "today" is NOT
 // accepted as the END token -- an end date is still required and must
 // be a real D/M value.
+//
+// startWasToday is true only when the start token was literally typed
+// as "today". It's a PERMANENT label choice, not a live check -- once
+// set, it stays true forever, even after that date is long in the past.
+// It exists purely so CUSTOMER-facing displays can print the word
+// "Today" instead of a resolved date. Every ADMIN-facing display in
+// this file (announce/promo/itempromo status checks, close/status
+// replies, confirmation messages) MUST ignore this flag and always
+// print the real resolved "start" date instead, so you're never left
+// guessing what date something actually means. Only the customer-facing
+// announcement payload (/api/menu's dateRangeDisplay) should honour it.
 function parseCloseDateRange(rest) {
   const parts = rest.split("-").map((p) => p.trim());
   if (parts.length !== 1 && parts.length !== 2) return null;
@@ -253,16 +265,17 @@ function parseCloseDateRange(rest) {
   // ranges. It resolves against the same Bangkok wall clock as every
   // other date in this file.
   const parseStart = (str) => {
-    if (str.trim().toLowerCase() === "today") return bangkokDateStr(bangkokNow());
-    return parseOne(str);
+    if (str.trim().toLowerCase() === "today") return { date: bangkokDateStr(bangkokNow()), wasToday: true };
+    const date = parseOne(str);
+    return date ? { date, wasToday: false } : null;
   };
 
-  const start = parseStart(parts[0]);
-  if (!start) return null;
-  const end = parts.length === 2 ? parseOne(parts[1]) : start;
+  const startResult = parseStart(parts[0]);
+  if (!startResult) return null;
+  const end = parts.length === 2 ? parseOne(parts[1]) : startResult.date;
   if (!end) return null;
-  if (end < start) return null;
-  return { start, end };
+  if (end < startResult.date) return null;
+  return { start: startResult.date, end, startWasToday: startResult.wasToday };
 }
 
 function formatDateRangeForDisplay(range) {
@@ -278,18 +291,37 @@ const LONG_MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-// "15 September - 30 September 2026" style, used only in announcement
-// admin messages (the customer-facing pop-up itself doesn't show dates
-// at all -- just headline and body). Other admin commands (promo,
-// closures) keep the short D/M/YYYY format, this one is announcement-only
-// per Lily's request.
-function formatDateRangeLong(range) {
+// "15 September - 30 September 2026" style, used for announcement
+// messages. Other admin commands (promo, closures) keep the short
+// D/M/YYYY format via formatDateRangeForDisplay, this one is
+// announcement-only per Lily's request.
+//
+// honourToday (default false): when true AND range.startWasToday is
+// true, the start half prints as the literal word "Today" instead of
+// the resolved date. This is a CUSTOMER-facing display choice only --
+// every admin-facing call site (status checks, confirmations back to
+// Lily) must call this WITHOUT honourToday (or leave it false/omitted)
+// so admin text always shows the real date and never "Today", avoiding
+// any confusion about what date something actually means. Once
+// startWasToday is true it stays true forever -- this is a permanent
+// label, not a live "is it actually today" check, so a stale
+// announcement from last month still shows "Today" here if that's
+// literally what was typed when it was set.
+function formatDateRangeLong(range, honourToday) {
   const fmt = (str) => {
     const [y, m, d] = str.split("-");
     return { day: parseInt(d, 10), month: LONG_MONTH_NAMES[parseInt(m, 10) - 1], year: y };
   };
-  const start = fmt(range.start);
   const end = fmt(range.end);
+  const startLabel = honourToday && range.startWasToday ? "Today" : null;
+
+  if (startLabel) {
+    // "Today - 31 December 2026" -- start never needs a year/month of
+    // its own since it's just the word "Today".
+    return range.start === range.end ? startLabel : `${startLabel} - ${end.day} ${end.month} ${end.year}`;
+  }
+
+  const start = fmt(range.start);
   if (range.start === range.end) return `${start.day} ${start.month} ${start.year}`;
   if (start.year === end.year && start.month === end.month) {
     return `${start.day} - ${end.day} ${end.month} ${end.year}`;
@@ -1909,7 +1941,13 @@ async function handleAdminCommand(replyToken, text) {
       });
       return true;
     }
-    setAnnouncement({ active: true, headline, body, startDate: range.start, endDate: range.end });
+    // startWasToday is stored alongside the resolved dates purely so the
+    // CUSTOMER-facing payload (/api/menu, see dateRangeDisplay below) can
+    // print the literal word "Today" if that's what was typed. This
+    // confirmation message back to Lily always uses the real resolved
+    // date (formatDateRangeLong called WITHOUT honourToday), so admin
+    // and customer displays never disagree about what date this means.
+    setAnnouncement({ active: true, headline, body, startDate: range.start, endDate: range.end, startWasToday: range.startWasToday });
     await client.replyMessage(replyToken, {
       type: "text",
       text: `Announcement set: "${headline}", ${formatDateRangeLong(range)}. This replaces the normal entrance pop-up while it's live. Text "announce" anytime to check status, or "announce off" to clear it.`,
@@ -2217,8 +2255,21 @@ app.get("/api/menu", (req, res) => {
     items,
     pastaOptions: PASTA_OPTIONS,
     sizeOptions: SIZE_OPTIONS,
+    // dateRangeDisplay is the ONLY place "Today" is allowed to appear --
+    // this is the customer-facing payload, so honourToday is passed here
+    // and nowhere else in this file. If the announcement's start was
+    // originally typed as "today" (a.startWasToday), this prints the
+    // literal word "Today" permanently, even long after that date has
+    // passed -- it's a label choice Lily made at set-time, not a live
+    // "is it actually today" check.
     announcement: isAnnouncementLiveToday()
-      ? { ...getAnnouncement(), dateRangeDisplay: formatDateRangeLong({ start: getAnnouncement().startDate, end: getAnnouncement().endDate }) }
+      ? (() => {
+          const a = getAnnouncement();
+          return {
+            ...a,
+            dateRangeDisplay: formatDateRangeLong({ start: a.startDate, end: a.endDate, startWasToday: a.startWasToday }, true),
+          };
+        })()
       : null,
   });
 });

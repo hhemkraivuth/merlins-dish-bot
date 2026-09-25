@@ -217,6 +217,15 @@ function bangkokDateStr(date) {
 // the current year, or next year if that date has already passed this year
 // (so closing dates typed in December for January still land correctly).
 // Returns null if the text doesn't look like a valid date/range.
+//
+// The START token (only) also accepts the literal word "today" (any
+// case), which resolves to the current Bangkok-time date. This works
+// identically across every command that calls this function (close,
+// promo, itempromo, announce) -- there's nothing announce-specific
+// about it, so mixing "today" on one command and an explicit D/M on
+// another within the same campaign period just works. "today" is NOT
+// accepted as the END token -- an end date is still required and must
+// be a real D/M value.
 function parseCloseDateRange(rest) {
   const parts = rest.split("-").map((p) => p.trim());
   if (parts.length !== 1 && parts.length !== 2) return null;
@@ -239,7 +248,16 @@ function parseCloseDateRange(rest) {
     return bangkokDateStr(candidate);
   };
 
-  const start = parseOne(parts[0]);
+  // "today" is only meaningful as a start date -- an explicit end date
+  // is still always required, so this does NOT introduce open-ended
+  // ranges. It resolves against the same Bangkok wall clock as every
+  // other date in this file.
+  const parseStart = (str) => {
+    if (str.trim().toLowerCase() === "today") return bangkokDateStr(bangkokNow());
+    return parseOne(str);
+  };
+
+  const start = parseStart(parts[0]);
   if (!start) return null;
   const end = parts.length === 2 ? parseOne(parts[1]) : start;
   if (!end) return null;
@@ -1735,6 +1753,13 @@ async function handleAdminCommand(replyToken, text) {
   // "itempromo <itemId> <percent> <D/M-D/M> [label]" -- set one item's
   //   specific promo, e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal"
   //   An item promo always wins over the storewide one for that item.
+  //
+  // NOTE: like "close" and "announce", the date-range token here goes
+  // through parseCloseDateRange, so its start half also accepts the
+  // literal word "today" (e.g. "promo 10 today-30/9 Launch Campaign"),
+  // completely independently of whatever you type for "announce" in the
+  // same campaign -- one command can use "today", another an explicit
+  // date, for the same period.
   if (lower === "promo" || lower === "promos") {
     const sw = getStorewidePromo();
     const swLine = isPromoLiveToday(sw)
@@ -1768,7 +1793,7 @@ async function handleAdminCommand(replyToken, text) {
     if (isNaN(percent) || percent <= 0 || percent > 100) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that. Use "promo <percent> <D/M-D/M> [label]", e.g. "promo 10 14/9-30/9 Launch Campaign".`,
+        text: `Couldn't read that. Use "promo <percent> <D/M-D/M> [label]", e.g. "promo 10 14/9-30/9 Launch Campaign". The start date can also be "today", e.g. "promo 10 today-30/9 Launch Campaign".`,
       });
       return true;
     }
@@ -1776,7 +1801,7 @@ async function handleAdminCommand(replyToken, text) {
     if (!range) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that date range. Use "promo <percent> <D/M-D/M> [label]", e.g. "promo 10 14/9-30/9 Launch Campaign".`,
+        text: `Couldn't read that date range. Use "promo <percent> <D/M-D/M> [label]", e.g. "promo 10 14/9-30/9 Launch Campaign". The start date can also be "today".`,
       });
       return true;
     }
@@ -1805,7 +1830,7 @@ async function handleAdminCommand(replyToken, text) {
     if (isNaN(percent) || percent <= 0 || percent > 100) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that. Use "itempromo <itemId> <percent> <D/M-D/M> [label]", e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal". Or "itempromo <itemId> off" to clear it.`,
+        text: `Couldn't read that. Use "itempromo <itemId> <percent> <D/M-D/M> [label]", e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal". Or "itempromo <itemId> off" to clear it. The start date can also be "today".`,
       });
       return true;
     }
@@ -1813,7 +1838,7 @@ async function handleAdminCommand(replyToken, text) {
     if (!range) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that date range. Use "itempromo <itemId> <percent> <D/M-D/M> [label]", e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal".`,
+        text: `Couldn't read that date range. Use "itempromo <itemId> <percent> <D/M-D/M> [label]", e.g. "itempromo bolognese 20 14/9-30/9 Bolognese Deal". The start date can also be "today".`,
       });
       return true;
     }
@@ -1830,6 +1855,10 @@ async function handleAdminCommand(replyToken, text) {
   //   "why order direct" pop-up with this announcement while the date
   //   range is active. e.g.:
   //   "announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"
+  //   The start date can also be the word "today", e.g.
+  //   "announce ... | today-31/12" -- resolved the same way as every
+  //   other command that uses parseCloseDateRange, nothing announce-
+  //   specific about it. The end date is still always required.
   // "announce off" -- clear it, back to the normal benefits pop-up
   // "announce" (alone) -- check current status
   // "announcement" also works everywhere "announce" does, in case that's
@@ -1866,7 +1895,7 @@ async function handleAdminCommand(replyToken, text) {
     if (segments.length !== 3) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that -- need exactly 3 parts separated by "|". Use "announce <headline> | <body text> | D/M-D/M", e.g.\n"announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"`,
+        text: `Couldn't read that -- need exactly 3 parts separated by "|". Use "announce <headline> | <body text> | D/M-D/M", e.g.\n"announce 10% Off Everything! | Our launch campaign is here, enjoy 10% off your whole order. | 14/9-30/9"\nThe start date can also be "today", e.g. "today-31/12".`,
       });
       return true;
     }
@@ -1876,7 +1905,7 @@ async function handleAdminCommand(replyToken, text) {
     if (!range) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `Couldn't read that date range ("${dateRangeRaw}"). Use D/M-D/M, e.g. "14/9-30/9" or "15/9 - 30/9".`,
+        text: `Couldn't read that date range ("${dateRangeRaw}"). Use D/M-D/M, e.g. "14/9-30/9" or "15/9 - 30/9". The start date can also be "today", e.g. "today-31/12".`,
       });
       return true;
     }

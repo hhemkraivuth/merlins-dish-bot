@@ -480,11 +480,27 @@ function distanceKm(lat1, lon1, lat2, lon2) {
 }
 
 // Delivery fee tiers, mirrored from public/app.js's computeDeliveryFee():
-// 0-2km free, 2-5km flat ฿50, beyond 5km needs Merlin's manual confirmation.
-function computeDeliveryFee(km) {
-  if (km <= 2) return { fee: 0, manual: false };
+// 0-2km: free when the food total (after promos and loyalty rewards) reaches
+// FREE_DELIVERY_MIN, otherwise a flat SMALL_ORDER_FEE. 2-5km: flat ฿50 no
+// matter how much is ordered. Beyond 5km needs Merlin's manual confirmation.
+// Both numbers can be changed in Railway variables, no code edit needed.
+const FREE_DELIVERY_MIN = Number(process.env.FREE_DELIVERY_MIN || 300);
+const SMALL_ORDER_FEE = Number(process.env.SMALL_ORDER_FEE || 30);
+function computeDeliveryFee(km, foodTotal) {
+  if (km <= 2) {
+    return { fee: foodTotal >= FREE_DELIVERY_MIN ? 0 : SMALL_ORDER_FEE, manual: false };
+  }
   if (km <= 5) return { fee: 50, manual: false };
   return { fee: null, manual: true };
+}
+
+// Chat (legacy) flow: the fee depends on the cart total, which can still
+// change after the location is shared, so always work it out fresh.
+function legacyDeliveryFee(session) {
+  if (session.needsManualFee === false && session.distanceKm != null) {
+    return computeDeliveryFee(session.distanceKm, cartTotal(session.cart)).fee;
+  }
+  return session.deliveryFee || 0;
 }
 
 // Best-effort: turn coordinates from the LIFF app's map into something
@@ -1160,7 +1176,7 @@ async function handleLocationShared(userId, replyToken, message) {
   } else {
     const d = distanceKm(shopLat, shopLng, message.latitude, message.longitude);
     session.distanceKm = d;
-    const tier = computeDeliveryFee(d);
+    const tier = computeDeliveryFee(d, cartTotal(session.cart));
     session.needsManualFee = tier.manual;
     if (tier.manual) {
       await pingManualFeeNeeded(d);
@@ -1172,9 +1188,11 @@ async function handleLocationShared(userId, replyToken, message) {
   session.step = "awaiting_address_note";
   const feeMsg =
     session.needsManualFee === false
-      ? session.deliveryFee === 0
+      ? legacyDeliveryFee(session) === 0
         ? "You're within our free delivery zone! 🎉"
-        : `Delivery fee for your location: ฿${session.deliveryFee}.`
+        : session.distanceKm <= 2
+        ? `Delivery is ฿${legacyDeliveryFee(session)} for orders under ฿${FREE_DELIVERY_MIN}, and free from ฿${FREE_DELIVERY_MIN}.`
+        : `Delivery fee for your location: ฿${legacyDeliveryFee(session)}.`
       : "Noted -- Merlin's Dish will confirm your delivery fee shortly.";
   await client.replyMessage(replyToken, {
     type: "text",
@@ -1289,9 +1307,9 @@ async function showFinalSummary(userId, replyToken) {
       : `Timing: Scheduled for ${session.scheduledFor.format("DD/MM/YYYY")} at ${session.scheduledFor.format("HH:mm")}`;
   const deliveryLine =
     session.needsManualFee === false
-      ? session.deliveryFee === 0
+      ? legacyDeliveryFee(session) === 0
         ? "Delivery: FREE (within 2km)"
-        : `Delivery fee: ฿${session.deliveryFee} (2-5km)`
+        : `Delivery fee: ฿${legacyDeliveryFee(session)} (${session.distanceKm <= 2 ? `under ฿${FREE_DELIVERY_MIN}, within 2km` : "2-5km"})`
       : "Delivery fee: to be confirmed by Merlin's Dish";
 
   await client.replyMessage(replyToken, {
@@ -1528,7 +1546,7 @@ async function forwardForManualReview(userId, session, reason) {
 async function finishOrder(userId, replyToken, session) {
   const lines = cartLines(session.cart);
   const foodTotal = cartTotal(session.cart);
-  const deliveryFeeAmount = session.needsManualFee ? 0 : session.deliveryFee || 0;
+  const deliveryFeeAmount = session.needsManualFee ? 0 : legacyDeliveryFee(session);
   const total = foodTotal + deliveryFeeAmount;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
 
@@ -1554,7 +1572,7 @@ async function finishOrder(userId, replyToken, session) {
     session.needsManualFee === false
       ? deliveryFeeAmount === 0
         ? `Delivery: FREE (${session.distanceKm.toFixed(1)}km, within 2km zone)`
-        : `Delivery: ฿${deliveryFeeAmount} (${session.distanceKm.toFixed(1)}km, 2-5km zone)`
+        : `Delivery: ฿${deliveryFeeAmount} (${session.distanceKm.toFixed(1)}km, ${session.distanceKm <= 2 ? `under ฿${FREE_DELIVERY_MIN} order` : "2-5km zone"})`
       : session.distanceKm != null
       ? `Delivery fee: TO BE CONFIRMED (${session.distanceKm.toFixed(1)}km, outside 5km zone)`
       : `Delivery fee: TO BE CONFIRMED (typed address, distance not calculated)`;
@@ -2209,7 +2227,7 @@ async function handleFollow(userId, replyToken) {
       `Hello, welcome to the kitchen 🥘✨\n\n` +
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
       `Ready to order? Just tap Order Now in the menu below, or type "menu" anytime.\n\n` +
-      `🪄 Order with us here for lower menu prices, free delivery within 2km, and a flat rate up to 5km.\n` +
+      `🪄 Order with us here for lower menu prices, free delivery within 2km on orders from ฿${FREE_DELIVERY_MIN}, ฿${SMALL_ORDER_FEE} below that, and a flat ฿50 up to 5km.\n` +
       `⚡ Ordering direct also means no middle man taking a cut, so more of what you pay goes straight into the kitchen, the ingredients, and keeping this a small, real thing.\n\n` +
       `Got a question instead? Just ask, we're happy to help.\n\n` +
       `Comfort Food Made With Magic ✨\n` +
@@ -2283,6 +2301,8 @@ app.get("/api/shop-info", (req, res) => {
     liffId: process.env.LIFF_ID || null,
     isOpen: isShopOpen(),
     closedMessage: closedMessage(),
+    freeDeliveryMin: FREE_DELIVERY_MIN,
+    smallOrderFee: SMALL_ORDER_FEE,
   });
 });
 
@@ -2579,7 +2599,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   // browser reported, rather than trusting order.needsManualFee/fee directly.
   let deliveryFeeAmount = 0;
   if (typeof order.distanceKm === "number") {
-    const tier = computeDeliveryFee(order.distanceKm);
+    const tier = computeDeliveryFee(order.distanceKm, foodTotal);
     if (tier.manual) {
       const feeEntry = order.feeRequestId ? pendingFeeRequests.get(order.feeRequestId) : null;
       if (!feeEntry || feeEntry.status !== "confirmed") {
@@ -2672,7 +2692,11 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   const deliveryLine =
     deliveryFeeAmount === 0 && !order.needsManualFee
       ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
-      : `Delivery: ฿${deliveryFeeAmount}${order.distanceKm ? ` (${order.distanceKm.toFixed(1)}km)` : ""}`;
+      : `Delivery: ฿${deliveryFeeAmount}${
+          order.distanceKm
+            ? ` (${order.distanceKm.toFixed(1)}km${order.distanceKm <= 2 ? `, under ฿${FREE_DELIVERY_MIN} order` : ""})`
+            : ""
+        }`;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
   const discountLine = totalDiscount > 0 ? `Discount applied: -฿${totalDiscount}${promoLabelsUsed.length ? ` (${promoLabelsUsed.join(", ")})` : ""}\n` : "";
 

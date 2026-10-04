@@ -38,11 +38,51 @@ let feeRequestId = null; // sent back with the final order so the server can ver
 let distanceKm = null;
 
 // ---------- delivery fee tiers ----------
-// 0-2km: free. 2-5km: flat ฿50. >5km: manual confirmation by Merlin's Dish.
-function computeDeliveryFee(km) {
-  if (km <= 2) return { fee: 0, manual: false, label: "FREE (within 2km)" };
+// 0-2km: free when the food total (after promos and rewards) reaches the
+// minimum spend, otherwise a small flat fee. 2-5km: flat ฿50 whatever the
+// spend. >5km: manual confirmation by Merlin's Dish. The minimum spend and
+// small fee come from the server (/api/shop-info), so a change in Railway
+// variables reaches the app with no code edit. Mirrors server.js.
+function freeDeliveryMin() {
+  return SHOP_INFO.freeDeliveryMin != null ? SHOP_INFO.freeDeliveryMin : 300;
+}
+function smallOrderFee() {
+  return SHOP_INFO.smallOrderFee != null ? SHOP_INFO.smallOrderFee : 30;
+}
+function computeDeliveryFee(km, foodTotal) {
+  if (km <= 2) {
+    const fee = foodTotal >= freeDeliveryMin() ? 0 : smallOrderFee();
+    return { fee, manual: false, label: fee === 0 ? "FREE (within 2km)" : `฿${fee} (under ฿${freeDeliveryMin()})` };
+  }
   if (km <= 5) return { fee: 50, manual: false, label: "฿50 (2-5km)" };
   return { fee: null, manual: true, label: null };
+}
+
+// The fee shown and charged right now. Within 0-5km it follows the cart, so
+// it is recalculated every time; for manual fees (over 5km or a typed
+// address) it is the amount Merlin's Dish confirmed.
+function currentDeliveryFee() {
+  if (!needsManualFee && distanceKm != null) {
+    return computeDeliveryFee(distanceKm, cartTotal()).fee;
+  }
+  return confirmedDeliveryFee;
+}
+
+// Cart screen hint, before the customer has picked a location.
+function updateCartDeliveryHint() {
+  const el = document.getElementById("cart-delivery-hint");
+  if (!el) return;
+  const total = cartTotal();
+  const min = freeDeliveryMin();
+  if (total === 0) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  el.textContent =
+    total >= min
+      ? "🎉 You've unlocked free delivery within 2km"
+      : `Add ฿${min - total} more for free delivery within 2km (otherwise ฿${smallOrderFee()})`;
 }
 let addressNote = "";
 let paymentMethod = "bank";
@@ -77,6 +117,7 @@ function showScreen(id) {
   document.querySelectorAll(".screen").forEach((el) => el.classList.remove("active"));
   document.getElementById(id).classList.add("active");
   window.scrollTo(0, 0);
+  if (id === "delivery-screen") renderLocationResult();
 }
 
 function showToast(message, isError) {
@@ -118,6 +159,13 @@ async function init() {
     SIZE_OPTIONS = menuRes.sizeOptions;
     ANNOUNCEMENT = menuRes.announcement || null;
     SHOP_INFO = shopRes;
+    // Keep the delivery wording in the static page in step with the server's numbers.
+    const dfNote = document.getElementById("free-delivery-note");
+    if (dfNote) {
+      dfNote.textContent = `🎉 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up (฿${smallOrderFee()} below that), flat ฿50 for 2-5km, from Asok area`;
+    }
+    const dfLi = document.getElementById("direct-free-delivery-li");
+    if (dfLi) dfLi.textContent = `🚚 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up`;
   } catch (err) {
     console.error(err);
     showToast("Couldn't load the menu. Please reopen the app.");
@@ -810,6 +858,7 @@ function renderCartScreen() {
     });
   }
   document.getElementById("cart-screen-total").textContent = `฿${cartTotal()}`;
+  updateCartDeliveryHint();
   updateCheckoutEnabled();
 }
 
@@ -912,25 +961,38 @@ function useMyLocation(silent) {
 function setDeliveryLocation(lat, lng) {
   deliveryLocation = { lat, lng };
   manualAddress = "";
-  const resultEl = document.getElementById("location-result");
-  resultEl.classList.remove("hidden", "free", "manual");
   if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null) {
     distanceKm = distanceKmBetween(SHOP_INFO.shopLat, SHOP_INFO.shopLng, lat, lng);
-    const tier = computeDeliveryFee(distanceKm);
-    needsManualFee = tier.manual;
+    needsManualFee = computeDeliveryFee(distanceKm, cartTotal()).manual;
+  } else {
+    needsManualFee = true;
+  }
+  renderLocationResult();
+}
+
+// Writes the distance and fee message under the map. Called when the pin
+// moves and again whenever the delivery screen opens, so it never shows a
+// stale fee after the cart has changed.
+function renderLocationResult() {
+  const resultEl = document.getElementById("location-result");
+  if (!deliveryLocation) return;
+  resultEl.classList.remove("hidden", "free", "flat-fee", "manual");
+  if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null && distanceKm != null) {
+    const tier = computeDeliveryFee(distanceKm, cartTotal());
     if (tier.manual) {
       resultEl.textContent = `${distanceKm.toFixed(1)}km away, outside our 5km delivery zone. Merlin's Dish will confirm the delivery fee shortly.`;
       resultEl.classList.add("manual");
+    } else if (tier.fee === 0) {
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, free delivery! 🎉`;
+      resultEl.classList.add("free");
+    } else if (distanceKm <= 2) {
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, delivery ฿${tier.fee}. Add ฿${freeDeliveryMin() - cartTotal()} more to your order for free delivery.`;
+      resultEl.classList.add("flat-fee");
     } else {
-      confirmedDeliveryFee = tier.fee;
-      resultEl.textContent =
-        tier.fee === 0
-          ? `${distanceKm.toFixed(1)}km away, free delivery! 🎉`
-          : `${distanceKm.toFixed(1)}km away, delivery fee ฿${tier.fee}.`;
-      resultEl.classList.add(tier.fee === 0 ? "free" : "flat-fee");
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, delivery fee ฿${tier.fee}.`;
+      resultEl.classList.add("flat-fee");
     }
   } else {
-    needsManualFee = true;
     resultEl.textContent = "Location set. Delivery fee will be confirmed by Merlin's Dish.";
     resultEl.classList.add("manual");
   }
@@ -1103,10 +1165,11 @@ function renderReviewScreen() {
     document.getElementById("review-subtotal-row").classList.add("hidden");
   }
 
-  const grandTotal = foodTotal + confirmedDeliveryFee;
+  const deliveryFee = currentDeliveryFee();
+  const grandTotal = foodTotal + deliveryFee;
   document.getElementById("review-food-total").textContent = `฿${foodTotal}`;
   document.getElementById("review-delivery").textContent =
-    confirmedDeliveryFee === 0 ? "FREE (within 2km)" : `฿${confirmedDeliveryFee}`;
+    deliveryFee === 0 ? "FREE (within 2km)" : `฿${deliveryFee}`;
   document.getElementById("review-timing").textContent =
     timing === "ASAP"
       ? "Right away"
@@ -1358,8 +1421,9 @@ function wireStaticEvents() {
     if (needsManualFee) {
       await requestDeliveryFeeAndWait();
     } else {
-      // confirmedDeliveryFee was already set by computeDeliveryFee() in setDeliveryLocation()
-      // (0 for <=2km, 50 for 2-5km); typed manual addresses without a pin fall through to manual.
+      // The fee is worked out by currentDeliveryFee() when the review screen renders
+      // (free or the small fee for <=2km depending on the food total, 50 for 2-5km);
+      // typed manual addresses without a pin fall through to manual.
       renderReviewScreen();
       showScreen("review-screen");
     }

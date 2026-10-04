@@ -27,7 +27,7 @@
       <h2>Why order direct? ✨</h2>
       <ul class="modal-benefits">
         <li>🏷️ Lower menu prices</li>
-        <li>🚚 Free delivery</li>
+        <li id="direct-free-delivery-li">🚚 Free delivery within 2km on orders ฿300 and up</li>
         <li>🎁 Points collected automatically after every order, no extra effort</li>
         <li>🙏🏼 Supporting us direct means the world, more of your payment reaches the kitchen</li>
       </ul>
@@ -126,6 +126,7 @@
   </section>
 
   <div class="bottom-actions">
+    <p id="cart-delivery-hint" class="hint hidden"></p>
     <div class="total-row">
       <span>Total</span>
       <strong id="cart-screen-total">฿0</strong>
@@ -163,7 +164,7 @@
 
     <section class="field-group">
       <label>Delivery location</label>
-      <p class="free-delivery-note">🎉 Free delivery within 2km, flat ฿50 for 2-5km, from Asok area</p>
+      <p id="free-delivery-note" class="free-delivery-note">🎉 Free delivery within 2km on orders ฿300 and up (฿30 below that), flat ฿50 for 2-5km, from Asok area</p>
       <p class="hint">Touch and hold the pin, then drag it to where you want the delivery -- it doesn't have to be where you are right now.</p>
       <div id="map" class="map-container"></div>
       <button type="button" id="use-my-location-btn" class="btn btn-secondary btn-block">📍 Use my current location</button>

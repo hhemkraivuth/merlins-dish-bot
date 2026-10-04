@@ -11,6 +11,11 @@
 //      /public/index.html, style.css, and app.js.
 //
 // Admin (you) can text the bot directly from your own LINE account:
+//   "remove <item>"         -> takes a dish off the menu for good (survives restarts)
+//   "restore <item>"        -> puts a removed dish back ("restore" alone lists them)
+//   "additem <category> | <name> | <price> | <description>"
+//                           -> adds a new dish, then send its photo (see below)
+//   "setimage <item>"       -> then send a photo to set or replace that dish's photo
 //   "stock"                 -> lists sold-out items and any tracked stock counts
 //   "soldout <item_id>"     -> hides that item from customers
 //   "instock <item_id>"     -> brings it back with no stock limit
@@ -67,6 +72,7 @@ const {
   validateSchedule,
 } = require("./scheduling");
 const { markOrderForReminderJob, startReminderCron } = require("./scheduled-reminder");
+const menuStore = require("./menuStore");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -98,6 +104,30 @@ async function uploadSlipPhoto(buffer, mimetype) {
     return null;
   }
 }
+
+// Same idea as uploadSlipPhoto, but for dish photos sent from the LINE
+// group. Stored in its own Cloudinary folder and shrunk to a sensible
+// size so the menu stays quick to load. Returns a URL, or null on failure.
+async function uploadMenuPhoto(buffer, mimetype) {
+  if (!hasCloudinaryCreds) return null;
+  try {
+    const base64 = `data:${mimetype || "image/jpeg"};base64,${buffer.toString("base64")}`;
+    const result = await cloudinary.uploader.upload(base64, {
+      folder: "merlins-dish-menu",
+      resource_type: "image",
+      transformation: [{ width: 1000, crop: "limit", quality: "auto" }],
+    });
+    return result.secure_url;
+  } catch (err) {
+    console.error("Cloudinary menu photo upload failed:", err.message);
+    return null;
+  }
+}
+
+// The dish waiting for its photo: set by "additem" / "setimage", used by
+// the next photo you send, and forgotten after 15 minutes.
+let pendingMenuImage = null; // { itemId, expiresAt }
+const MENU_IMAGE_WINDOW_MS = 15 * 60 * 1000;
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -1650,6 +1680,41 @@ async function finishOrder(userId, replyToken, session) {
 
 // ---------- admin commands (you only) ----------
 
+// Your photo for a dish waiting after "additem" / "setimage". Uses
+// pushMessage, not replyMessage, because the download and upload take
+// longer than a reply token stays valid.
+async function handleMenuImage(event, userId) {
+  const { itemId } = pendingMenuImage;
+  const target = event.source.groupId || event.source.roomId || userId;
+  const dish = MENU.find((d) => d.id === itemId);
+  if (!dish) {
+    pendingMenuImage = null;
+    await client.pushMessage(target, { type: "text", text: "That dish is no longer on the menu, so I didn't attach the photo." });
+    return;
+  }
+  try {
+    const stream = await client.getMessageContent(event.message.id);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const url = await uploadMenuPhoto(Buffer.concat(chunks), "image/jpeg");
+    if (!url) throw new Error("upload returned no url");
+    const result = await menuStore.updateItem(MENU, itemId, { image: url });
+    pendingMenuImage = null;
+    await client.pushMessage(target, {
+      type: "text",
+      text:
+        `Photo set for "${dish.name}". Customers will see it next time they open the menu.` +
+        (result.saved ? "" : "\n\nNote: I couldn't save this to the sheet, so it may revert if the bot restarts."),
+    });
+  } catch (err) {
+    console.error("Setting menu photo failed:", err.message);
+    await client.pushMessage(target, {
+      type: "text",
+      text: `Couldn't set that photo just now. Send it again, or text "setimage ${itemId}" and then the photo.`,
+    });
+  }
+}
+
 async function handleAdminCommand(replyToken, text) {
   const lower = text.toLowerCase().trim();
 
@@ -1705,6 +1770,181 @@ async function handleAdminCommand(replyToken, text) {
     await client.replyMessage(replyToken, {
       type: "text",
       text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nScheduled closures: ${closuresText}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
+    });
+    return true;
+  }
+
+  // ---------- menu changes: remove / restore / additem / setimage ----------
+
+  // Finds a dish from whatever you typed: the short keyword, the id, or
+  // part of its name ("juza", "pepsi", "forever lemon"). Returns the MENU
+  // entry, or null if nothing (or more than one dish) matches.
+  const findDishFromText = (typed) => {
+    const id = resolveItemId(typed, MENU);
+    if (id) return MENU.find((d) => d.id === id) || null;
+    const q = typed.trim().toLowerCase();
+    if (!q) return null;
+    const hits = MENU.filter((d) => d.name.toLowerCase().includes(q));
+    return hits.length === 1 ? hits[0] : null;
+  };
+
+  if (lower.startsWith("remove ")) {
+    const typed = text.trim().slice("remove ".length).trim();
+    const dish = findDishFromText(typed);
+    if (!dish) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't find "${typed}" on the menu. Text "stock" to see every item and its id, then try "remove <id>".`,
+      });
+      return true;
+    }
+    // Never remove a dish that is currently a loyalty reward -- the next
+    // customer to redeem it would hit a dead end.
+    try {
+      const rc = await getRewardConfig(MENU);
+      const rewardIds = [rc.low.menuItemId, ...rc.high.dishChoices.map((c) => c.id)];
+      if (rewardIds.includes(dish.id)) {
+        await client.replyMessage(replyToken, {
+          type: "text",
+          text: `"${dish.name}" is currently a loyalty reward. Change the reward first (e.g. "change the 5 point reward to bacon steak"), then remove it.`,
+        });
+        return true;
+      }
+    } catch (err) {
+      console.error("Reward check before remove failed, continuing:", err.message);
+    }
+    const result = await menuStore.removeItem(MENU, dish.id);
+    soldOut.delete(dish.id);
+    stockCount.delete(dish.id);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text:
+        `Removed "${dish.name}" from the menu. Customers can't see or order it any more.` +
+        (result.saved ? "" : "\n\nNote: I couldn't save this to the sheet, so it will come back if the bot restarts. Text the same command again once the sheet is reachable.") +
+        `\n\nChanged your mind? Text "restore ${dish.id}".`,
+    });
+    return true;
+  }
+
+  if (lower === "restore" || lower === "removed") {
+    const gone = menuStore.listRemoved();
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: gone.length
+        ? `Removed dishes:\n${gone.map((d) => `${d.id} -- ${d.name}`).join("\n")}\n\nText "restore <id>" to bring one back.`
+        : "No dishes are currently removed.",
+    });
+    return true;
+  }
+
+  if (lower.startsWith("restore ")) {
+    const typed = text.trim().slice("restore ".length).trim().toLowerCase();
+    const gone = menuStore.listRemoved();
+    const dish =
+      gone.find((d) => d.id.toLowerCase() === typed) ||
+      gone.find((d) => d.name.toLowerCase().includes(typed));
+    if (!dish) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: gone.length
+          ? `Couldn't find "${typed}" in the removed list. Removed dishes:\n${gone.map((d) => `${d.id} -- ${d.name}`).join("\n")}`
+          : "No dishes are currently removed.",
+      });
+      return true;
+    }
+    const result = await menuStore.restoreItem(MENU, dish.id);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text:
+        `"${dish.name}" is back on the menu.` +
+        (result.saved ? "" : "\n\nNote: I couldn't save this to the sheet, so it may disappear again if the bot restarts."),
+    });
+    return true;
+  }
+
+  if (lower.startsWith("additem")) {
+    const usage =
+      `To add a dish, text:\nadditem <category> | <name> | <price> | <description>\n\n` +
+      `Example:\nadditem drinks | Pepsi Max | 38 | Zero sugar, ice cold\n\n` +
+      `Categories: spotlight, mains, pasta, soup, extras, drinks. The description is optional. ` +
+      `After that I'll ask for the photo, just send it as a normal picture.\n\n` +
+      `For a dish that needs a noodle choice or Regular/Large sizes, add "pasta" or "size" as a 5th part, e.g.\n` +
+      `additem pasta | Spicy Rosso + Pasta | 215 | Fiery tomato ragu | pasta`;
+    const parts = text.trim().slice("additem".length).split("|").map((p) => p.trim());
+    if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) {
+      await client.replyMessage(replyToken, { type: "text", text: usage });
+      return true;
+    }
+    const catWord = parts[0].toLowerCase();
+    const CATEGORY_WORDS = {
+      spotlight: "spotlight",
+      main: "mains", mains: "mains", stew: "mains", stews: "mains",
+      pasta: "pasta", pastas: "pasta",
+      soup: "soup", soups: "soup",
+      extra: "extras", extras: "extras", side: "extras", sides: "extras",
+      drink: "drinks", drinks: "drinks",
+    };
+    const category = CATEGORY_WORDS[catWord];
+    if (!category) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `"${parts[0]}" isn't a category. Use one of: spotlight, mains, pasta, soup, extras, drinks.\n\n${usage}`,
+      });
+      return true;
+    }
+    const name = parts[1];
+    const price = parseInt(parts[2].replace(/[^0-9]/g, ""), 10);
+    if (!Number.isFinite(price) || price <= 0) {
+      await client.replyMessage(replyToken, { type: "text", text: `Couldn't read the price "${parts[2]}". Use a whole number in baht, e.g. 38.\n\n${usage}` });
+      return true;
+    }
+    const flag = (parts[4] || "").toLowerCase();
+    const description = parts[3] || "";
+    const item = {
+      id: menuStore.makeItemId(name, MENU),
+      name,
+      price,
+      category,
+      image: null,
+    };
+    if (description) item.description = description;
+    if (flag === "pasta") item.requiresPasta = true;
+    if (flag === "size") item.requiresSize = true;
+    const result = await menuStore.addItem(MENU, item);
+    pendingMenuImage = { itemId: item.id, expiresAt: Date.now() + MENU_IMAGE_WINDOW_MS };
+    const catLabel = (CATEGORIES.find((c) => c.id === category) || {}).label || category;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text:
+        `Added "${item.name}" to ${catLabel} at ฿${item.price} (id: ${item.id}). It is live on the menu now.` +
+        (result.saved ? "" : "\n\nNote: I couldn't save this to the sheet, so it will disappear if the bot restarts.") +
+        (hasCloudinaryCreds
+          ? `\n\nNow send its photo in this chat within 15 minutes and I'll attach it. Skip it and the dish shows without a picture; text "setimage ${item.id}" any time to add one later.`
+          : `\n\nPhoto hosting (Cloudinary) isn't set up on the server, so I can't attach a photo yet.`),
+    });
+    return true;
+  }
+
+  if (lower.startsWith("setimage")) {
+    const typed = text.trim().slice("setimage".length).trim();
+    const dish = typed ? findDishFromText(typed) : null;
+    if (!dish) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: typed
+          ? `Couldn't find "${typed}" on the menu. Text "stock" to see every item and its id.`
+          : `Text "setimage <item>", e.g. "setimage juza", then send the photo.`,
+      });
+      return true;
+    }
+    if (!hasCloudinaryCreds) {
+      await client.replyMessage(replyToken, { type: "text", text: "Photo hosting (Cloudinary) isn't set up on the server, so I can't attach photos yet." });
+      return true;
+    }
+    pendingMenuImage = { itemId: dish.id, expiresAt: Date.now() + MENU_IMAGE_WINDOW_MS };
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Send the new photo for "${dish.name}" now (within 15 minutes) and I'll replace the current one.`,
     });
     return true;
   }
@@ -2881,6 +3121,17 @@ async function handleEvent(event) {
     return;
   }
 
+  if (
+    event.type === "message" &&
+    event.message.type === "image" &&
+    process.env.ADMIN_USER_ID &&
+    userId === process.env.ADMIN_USER_ID &&
+    pendingMenuImage &&
+    Date.now() < pendingMenuImage.expiresAt
+  ) {
+    return handleMenuImage(event, userId);
+  }
+
   if (event.type === "message" && event.message.type === "image") {
     const session = getSession(userId);
     if (session.step === "awaiting_slip") {
@@ -3082,4 +3333,12 @@ async function handleEvent(event) {
 
 const PORT = process.env.PORT || 3000;
 app.get("/health", (req, res) => res.send("Merlin's Dish bot is running."));
-app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+// Apply any menu changes saved from the LINE group (removed dishes, new
+// dishes, new photos) before taking customers, so a restart never brings
+// back a dish you removed.
+menuStore
+  .loadMenuOverrides(MENU)
+  .catch((err) => console.error("Menu overrides failed to load:", err.message))
+  .finally(() => {
+    app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+  });

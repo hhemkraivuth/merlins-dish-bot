@@ -520,7 +520,7 @@ function cartTotal() {
 function updateCheckRewardEnabled() {
   const name = document.getElementById("cart-name-input").value.trim();
   const phone = document.getElementById("cart-phone-input").value.trim();
-  const ok = name.length >= 2 && digitsOnly(phone).length >= 8;
+  const ok = name.length >= 1 && digitsOnly(phone).length >= 8;
   document.getElementById("check-reward-btn").disabled = !ok;
 }
 
@@ -862,11 +862,32 @@ function renderCartScreen() {
   updateCheckoutEnabled();
 }
 
+// Tells the customer why Checkout and Check your reward are greyed out.
+// Only appears once they have started typing in that field, so a fresh
+// cart screen doesn't open with a warning. A 1-letter name (e.g. "K") is fine.
+let nameTouched = false;
+let phoneTouched = false;
+function updateContactHint() {
+  const el = document.getElementById("cart-contact-hint");
+  if (!el) return;
+  const name = document.getElementById("cart-name-input").value.trim();
+  const phone = document.getElementById("cart-phone-input").value.trim();
+  const problems = [];
+  if (nameTouched && name.length < 1) problems.push("your name");
+  if (phoneTouched && digitsOnly(phone).length < 8) problems.push("a phone number with at least 8 digits");
+  if (problems.length === 0) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.textContent = `Please enter ${problems.join(" and ")} to continue.`;
+  el.classList.remove("hidden");
+}
+
 function updateCheckoutEnabled() {
   const name = document.getElementById("cart-name-input").value.trim();
   const phone = document.getElementById("cart-phone-input").value.trim();
   const hasItems = cartLines().length > 0;
-  const hasContactInfo = name.length >= 2 && digitsOnly(phone).length >= 8;
+  const hasContactInfo = name.length >= 1 && digitsOnly(phone).length >= 8;
   document.getElementById("checkout-btn").disabled = !(hasItems && hasContactInfo);
 }
 
@@ -1204,7 +1225,7 @@ function applyPaymentMethodUI() {
 function updatePlaceOrderEnabled() {
   const name = document.getElementById("cart-name-input").value.trim();
   const phone = document.getElementById("cart-phone-input").value.trim();
-  const ok = !!slipFile && name.length >= 2 && digitsOnly(phone).length >= 8;
+  const ok = !!slipFile && name.length >= 1 && digitsOnly(phone).length >= 8;
   document.getElementById("place-order-btn").disabled = !ok;
 }
 
@@ -1285,6 +1306,9 @@ function resetOrder() {
   document.getElementById("address-note").value = "";
   document.getElementById("cart-name-input").value = "";
   document.getElementById("cart-phone-input").value = "";
+  nameTouched = false;
+  phoneTouched = false;
+  updateContactHint();
   document.getElementById("slip-input").value = "";
   document.getElementById("slip-preview").classList.add("hidden");
   document.getElementById("location-result").classList.add("hidden");
@@ -1337,12 +1361,16 @@ function wireStaticEvents() {
   });
 
   document.getElementById("cart-name-input").addEventListener("input", () => {
+    nameTouched = true;
     updateCheckoutEnabled();
     updateCheckRewardEnabled();
+    updateContactHint();
   });
   document.getElementById("cart-phone-input").addEventListener("input", () => {
+    phoneTouched = true;
     updateCheckoutEnabled();
     updateCheckRewardEnabled();
+    updateContactHint();
   });
   document.getElementById("check-reward-btn").addEventListener("click", runCustomerLookup);
 

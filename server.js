@@ -19,6 +19,8 @@
 //   "stock"                 -> lists sold-out items and any tracked stock counts
 //   "soldout <item_id>"     -> hides that item from customers
 //   "instock <item_id>"     -> brings it back with no stock limit
+//   "keywords"              -> lists every short keyword for dishes, sizes and pasta
+//   "left <item> <n>"       -> same as setstock, e.g. "left chix 5" ("left chix 0" = sold out)
 //   "setstock <item_id> <n>" -> sets a remaining-count limit for that item;
 //                                the bot won't let customers order more than
 //                                this, and it auto-decreases as orders come in
@@ -51,7 +53,7 @@ const dayjs = require("dayjs");
 require("dayjs/plugin/utc");
 require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
-const { resolveItemId, resolveVariantId } = require("./aliases");
+const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
 const { logOrder, logMenuTap } = require("./sheetLogger");
@@ -1949,6 +1951,21 @@ async function handleAdminCommand(replyToken, text) {
     return true;
   }
 
+  if (lower === "keywords") {
+    const nameOf = (id) => {
+      const d = MENU.find((m) => m.id === id);
+      return d ? d.name : id;
+    };
+    const itemLines = Object.entries(ITEM_ALIASES).map(([id, list]) => `${nameOf(id)}: ${list.join(", ")}`);
+    const sizeLines = Object.entries(SIZE_ALIASES).map(([id, list]) => `${id}: ${list.join(", ")}`);
+    const pastaLines = Object.entries(PASTA_ALIASES).map(([id, list]) => `${id}: ${list.join(", ")}`);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text:
+        `Dish keywords:\n${itemLines.join("\n")}\n\nSizes (e.g. "left rws l 2"):\n${sizeLines.join("\n")}\n\nPasta choices (e.g. "left bolo luma 3"):\n${pastaLines.join("\n")}`,
+    });
+    return true;
+  }
   if (lower === "stock") {
     const body = MENU.map((d) => {
       const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
@@ -1968,7 +1985,7 @@ async function handleAdminCommand(replyToken, text) {
     await client.replyMessage(replyToken, { type: "text", text: `Stock status:\n${body}` });
     return true;
   }
-  if (lower.startsWith("setstock ")) {
+  if (lower.startsWith("setstock ") || lower.startsWith("left ")) {
     // Two forms, same shape as "soldout":
     //  1. Whole item: "setstock rws 10" -- sets the item's overall count.
     //  2. One size/pasta variant: "setstock rws l 2" -- sets the count

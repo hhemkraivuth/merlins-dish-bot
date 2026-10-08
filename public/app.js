@@ -165,7 +165,7 @@ async function init() {
       dfNote.textContent = `🎉 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up (฿${smallOrderFee()} below that), flat ฿50 for 2-5km, from Asok area`;
     }
     const dfLi = document.getElementById("direct-free-delivery-li");
-    if (dfLi) dfLi.textContent = `🚚 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up`;
+    if (dfLi) dfLi.textContent = `🚚 Free delivery within 2km`;
   } catch (err) {
     console.error(err);
     showToast("Couldn't load the menu. Please reopen the app.");

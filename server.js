@@ -56,7 +56,7 @@ const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
-const { logOrder, logMenuTap } = require("./sheetLogger");
+const { logOrder, logMenuTap, getTodaysMaxOrderNo } = require("./sheetLogger");
 const {
   getCustomer,
   recordOrder,
@@ -407,6 +407,40 @@ function makeRequestId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+// Simple daily order number: 001 for the first order of the day (Bangkok
+// time), 002 for the next, and so on. The number is given out the first
+// time a customer reaches you (a delivery-fee request, or a placed order)
+// and stays the same for that customer's whole order. After a restart the
+// counter carries on from the highest number already logged in the Orders
+// sheet today (column M), so numbers don't repeat. A customer who asks for
+// a fee and never orders leaves a gap in the sequence, which is harmless.
+let orderNoDate = null;
+let orderNoCounter = 0;
+let orderNoSeed = Promise.resolve(0);
+async function nextOrderNo() {
+  const today = new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" });
+  if (orderNoDate !== today) {
+    orderNoDate = today;
+    orderNoCounter = 0;
+    orderNoSeed = getTodaysMaxOrderNo(today);
+  }
+  const seeded = await orderNoSeed;
+  orderNoCounter = Math.max(orderNoCounter, seeded) + 1;
+  return String(orderNoCounter).padStart(3, "0");
+}
+
+// A tappable Google Maps link for the private group: exact pin when the
+// customer dropped one, otherwise a search for the typed address.
+function mapsLinkFor(location, addressText) {
+  if (location && typeof location.lat === "number" && typeof location.lng === "number") {
+    return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
+  }
+  if (addressText && addressText.trim()) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText.trim())}`;
+  }
+  return null;
+}
+
 // Remaining stock per item, controlled by "setstock <id> <n>". If an item
 // has no entry here, it's treated as unlimited. Also resets on restart.
 const stockCount = new Map();
@@ -514,7 +548,8 @@ function distanceKm(lat1, lon1, lat2, lon2) {
 // Delivery fee tiers, mirrored from public/app.js's computeDeliveryFee():
 // 0-2km: free when the food total (after promos and loyalty rewards) reaches
 // FREE_DELIVERY_MIN, otherwise a flat SMALL_ORDER_FEE. 2-5km: flat ฿50 no
-// matter how much is ordered. Beyond 5km needs Merlin's manual confirmation.
+// matter how much is ordered. 5-7.5km: flat ฿120. 7.5-10km: flat ฿180.
+// Beyond 10km needs Merlin's manual confirmation.
 // Both numbers can be changed in Railway variables, no code edit needed.
 const FREE_DELIVERY_MIN = Number(process.env.FREE_DELIVERY_MIN || 300);
 const SMALL_ORDER_FEE = Number(process.env.SMALL_ORDER_FEE || 30);
@@ -523,6 +558,8 @@ function computeDeliveryFee(km, foodTotal) {
     return { fee: foodTotal >= FREE_DELIVERY_MIN ? 0 : SMALL_ORDER_FEE, manual: false };
   }
   if (km <= 5) return { fee: 50, manual: false };
+  if (km <= 7.5) return { fee: 120, manual: false };
+  if (km <= 10) return { fee: 180, manual: false };
   return { fee: null, manual: true };
 }
 
@@ -1312,7 +1349,7 @@ async function handleChangeAddress(userId, replyToken) {
 async function pingManualFeeNeeded(d) {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (!target) return;
-  const distanceText = d == null ? "an unknown distance (customer typed their address instead of sharing a pin)" : `${d.toFixed(1)}km away (outside the 5km flat-rate zone)`;
+  const distanceText = d == null ? "an unknown distance (customer typed their address instead of sharing a pin)" : `${d.toFixed(1)}km away (outside the 10km flat-rate zone)`;
   try {
     await client.pushMessage(target, {
       type: "text",
@@ -1341,7 +1378,7 @@ async function showFinalSummary(userId, replyToken) {
     session.needsManualFee === false
       ? legacyDeliveryFee(session) === 0
         ? "Delivery: FREE (within 2km)"
-        : `Delivery fee: ฿${legacyDeliveryFee(session)} (${session.distanceKm <= 2 ? `under ฿${FREE_DELIVERY_MIN}, within 2km` : "2-5km"})`
+        : `Delivery fee: ฿${legacyDeliveryFee(session)} (${session.distanceKm <= 2 ? `under ฿${FREE_DELIVERY_MIN}, within 2km` : session.distanceKm <= 5 ? "2-5km" : session.distanceKm <= 7.5 ? "5-7.5km" : "7.5-10km"})`
       : "Delivery fee: to be confirmed by Merlin's Dish";
 
   await client.replyMessage(replyToken, {
@@ -1604,9 +1641,9 @@ async function finishOrder(userId, replyToken, session) {
     session.needsManualFee === false
       ? deliveryFeeAmount === 0
         ? `Delivery: FREE (${session.distanceKm.toFixed(1)}km, within 2km zone)`
-        : `Delivery: ฿${deliveryFeeAmount} (${session.distanceKm.toFixed(1)}km, ${session.distanceKm <= 2 ? `under ฿${FREE_DELIVERY_MIN} order` : "2-5km zone"})`
+        : `Delivery: ฿${deliveryFeeAmount} (${session.distanceKm.toFixed(1)}km, ${session.distanceKm <= 2 ? `under ฿${FREE_DELIVERY_MIN} order` : session.distanceKm <= 5 ? "2-5km zone" : session.distanceKm <= 7.5 ? "5-7.5km zone" : "7.5-10km zone"})`
       : session.distanceKm != null
-      ? `Delivery fee: TO BE CONFIRMED (${session.distanceKm.toFixed(1)}km, outside 5km zone)`
+      ? `Delivery fee: TO BE CONFIRMED (${session.distanceKm.toFixed(1)}km, outside 10km zone)`
       : `Delivery fee: TO BE CONFIRMED (typed address, distance not calculated)`;
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;
@@ -2362,32 +2399,49 @@ async function handleAdminCommand(replyToken, text) {
   return false;
 }
 
-async function handleFeeReply(replyToken, fee) {
-  // Match to the oldest request still waiting -- see the note by
-  // pendingFeeRequests above about why this is a FIFO match, not
-  // tied to a specific customer by name.
-  let oldestId = null;
-  let oldestTime = Infinity;
+async function handleFeeReply(replyToken, fee, orderNo) {
+  // "003 50" confirms order 003. A bare "50" only works when exactly one
+  // request is waiting, so a fee can never land on the wrong customer.
+  const waiting = [];
   for (const [id, entry] of pendingFeeRequests.entries()) {
-    if (entry.status === "waiting" && entry.createdAt < oldestTime) {
-      oldestId = id;
-      oldestTime = entry.createdAt;
-    }
+    if (entry.status === "waiting") waiting.push([id, entry]);
   }
 
-  if (!oldestId) {
-    // No pending request -- this was probably just an unrelated number
-    // typed in the group chat, say nothing so as not to be confusing.
+  let match = null;
+  if (orderNo) {
+    match = waiting.find(([, e]) => e.orderNo === orderNo) || null;
+    if (!match) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `No delivery fee request is waiting for #${orderNo}.` +
+          (waiting.length ? ` Waiting now: ${waiting.map(([, e]) => `#${e.orderNo} ${e.customerName}`).join(", ")}.` : ""),
+      });
+      return;
+    }
+  } else if (waiting.length === 1) {
+    match = waiting[0];
+  } else if (waiting.length > 1) {
+    waiting.sort((a, b) => a[1].createdAt - b[1].createdAt);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text:
+        `${waiting.length} customers are waiting. Reply with the order number and the fee, for example "${waiting[0][1].orderNo} 50".\n` +
+        waiting.map(([, e]) => `#${e.orderNo} ${e.customerName}`).join("\n"),
+    });
+    return;
+  } else {
+    // No pending request -- probably just an unrelated number typed in the
+    // group chat, say nothing so as not to be confusing.
     return;
   }
 
-  const entry = pendingFeeRequests.get(oldestId);
+  const [, entry] = match;
   entry.status = "confirmed";
   entry.fee = fee;
 
   await client.replyMessage(replyToken, {
     type: "text",
-    text: `✅ Delivery fee of ฿${fee} confirmed. The customer's app will pick this up automatically.`,
+    text: `✅ #${entry.orderNo} ${entry.customerName}: delivery fee of ฿${fee} confirmed. The customer's app will pick this up automatically.`,
   });
 
   // Clean up old entries so this map doesn't grow forever over many days.
@@ -2484,7 +2538,7 @@ async function handleFollow(userId, replyToken) {
       `Hello, welcome to the kitchen 🥘✨\n\n` +
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
       `Ready to order? Just tap Order Now in the menu below, or type "menu" anytime.\n\n` +
-      `🪄 Order with us here for lower menu prices, free delivery within 2km on orders from ฿${FREE_DELIVERY_MIN}, ฿${SMALL_ORDER_FEE} below that, and a flat ฿50 up to 5km.\n` +
+      `🪄 Order with us here for lower menu prices, free delivery within 2km on orders from ฿${FREE_DELIVERY_MIN}, ฿${SMALL_ORDER_FEE} below that, a flat ฿50 up to 5km, ฿120 from 5 to 7.5km, and ฿180 from 7.5 to 10km.\n` +
       `⚡ Ordering direct also means no middle man taking a cut, so more of what you pay goes straight into the kitchen, the ingredients, and keeping this a small, real thing.\n\n` +
       `Got a question instead? Just ask, we're happy to help.\n\n` +
       `Comfort Food Made With Magic ✨\n` +
@@ -2595,11 +2649,11 @@ app.get("/api/schedule-slots", (req, res) => {
   res.json({ slots });
 });
 
-// Called when a LIFF customer is beyond the 5km flat-rate zone (0-2km free,
-// 2-5km flat ฿50 are both handled automatically and never reach this route).
+// Called when a LIFF customer is beyond the 10km flat-rate zone (0-2km free,
+// 2-5km ฿50, 5-7.5km ฿120 and 7.5-10km ฿180 are all handled automatically and never reach this route).
 // Pings your private group and hands back a request id the app polls for the fee.
 app.post("/api/request-delivery-fee", express.json(), async (req, res) => {
-  const { lineUserId, items, distanceKm, addressNote } = req.body || {};
+  const { lineUserId, items, distanceKm: reportedKm, addressNote, location, addressText, customerName, phone } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "EMPTY_CART" });
   }
@@ -2610,8 +2664,9 @@ app.post("/api/request-delivery-fee", express.json(), async (req, res) => {
     if (dish) lines.push(`${reqItem.qty}x ${dish.name}`);
   }
 
-  let displayName = "Customer";
-  if (lineUserId) {
+  // Name typed on the cart screen wins; the LINE display name is the fallback.
+  let displayName = (customerName || "").trim();
+  if (!displayName && lineUserId) {
     try {
       const profile = await client.getProfile(lineUserId);
       displayName = profile.displayName;
@@ -2619,26 +2674,43 @@ app.post("/api/request-delivery-fee", express.json(), async (req, res) => {
       /* not friends yet or lookup failed -- keep the generic label */
     }
   }
+  if (!displayName) displayName = "Customer";
 
+  // Work the distance out here from the pin when we can, so it is never
+  // "unknown" just because the browser did not send one.
+  let km = typeof reportedKm === "number" ? reportedKm : null;
+  const hasPin = location && typeof location.lat === "number" && typeof location.lng === "number";
+  const shopLat = parseFloat(process.env.SHOP_LAT);
+  const shopLng = parseFloat(process.env.SHOP_LNG);
+  if (km == null && hasPin && !isNaN(shopLat) && !isNaN(shopLng)) {
+    km = distanceKm(shopLat, shopLng, location.lat, location.lng);
+  }
+
+  const orderNo = await nextOrderNo();
   const requestId = makeRequestId();
   pendingFeeRequests.set(requestId, {
     status: "waiting",
     fee: null,
     createdAt: Date.now(),
+    orderNo,
+    customerName: displayName,
   });
 
+  const mapsLink = mapsLinkFor(hasPin ? location : null, addressText);
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (target) {
     try {
       await client.pushMessage(target, {
         type: "text",
         text:
-          `📍 DELIVERY FEE NEEDED\n` +
-          `Customer: ${displayName}\n` +
+          `📍 DELIVERY FEE NEEDED #${orderNo}\n` +
+          `Customer: ${displayName}${phone ? ` (${phone})` : ""}\n` +
           `Order: ${lines.join(", ")}\n` +
-          `Distance: ${distanceKm ? distanceKm.toFixed(1) + "km" : "unknown"}\n` +
+          `Distance: ${km != null ? km.toFixed(1) + "km" : "unknown"}\n` +
+          `${hasPin ? "Pin" : "Typed address"}: ${mapsLink || "not provided"}\n` +
+          `${addressText && addressText.trim() ? `Address: ${addressText.trim()}\n` : ""}` +
           `${addressNote ? `Notes: ${addressNote}\n` : ""}` +
-          `Reply here with just the fee amount (e.g. 50) to confirm it. ` +
+          `Reply with the order number and fee, e.g. "${orderNo} 50". ` +
           `They're waiting in the app for your reply.`,
       });
     } catch (err) {
@@ -2885,12 +2957,17 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
 
   const total = foodTotal + deliveryFeeAmount;
 
+  // Same number the customer already got on their delivery-fee request, if
+  // they had one; otherwise the next number of the day.
+  const earlierFeeEntry = order.feeRequestId ? pendingFeeRequests.get(order.feeRequestId) : null;
+  const orderNo = (earlierFeeEntry && earlierFeeEntry.orderNo) || (await nextOrderNo());
+
   let slipResult;
   try {
     slipResult = await verifySlip(req.file.buffer, total);
   } catch (err) {
     console.error("Thunder API request failed (LIFF order):", err.message);
-    await forwardLiffOrderForManualReview(order, lines, total, "Slip check API did not respond.");
+    await forwardLiffOrderForManualReview(order, lines, total, "Slip check API did not respond.", orderNo, req.file);
     return res.json({
       success: true,
       manualReview: true,
@@ -2907,7 +2984,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     if (code === "SLIP_NOT_FOUND" || code === "INVALID_IMAGE_FORMAT") {
       return res.status(409).json({ success: false, error: "SLIP_NOT_FOUND", message: "We couldn't read a slip in that photo. Please make sure the QR code area is clear." });
     }
-    await forwardLiffOrderForManualReview(order, lines, total, `Slip check error: ${code || "unknown"}`);
+    await forwardLiffOrderForManualReview(order, lines, total, `Slip check error: ${code || "unknown"}`, orderNo, req.file);
     return res.json({
       success: true,
       manualReview: true,
@@ -2964,7 +3041,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         {
           type: "text",
           text:
-            `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"} (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\n${discountLine}Timing: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
+            `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"} #${orderNo} (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\n${discountLine}Timing: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
             `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
             `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
         },
@@ -2986,6 +3063,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     total,
     slipRef: slip.transRef,
     slipUrl,
+    orderNo,
     promoLabel: promoLabelsUsed.length ? promoLabelsUsed.join(", ") : null,
   });
 
@@ -3054,21 +3132,43 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   });
 });
 
-async function forwardLiffOrderForManualReview(order, lines, total, reason) {
+async function forwardLiffOrderForManualReview(order, lines, total, reason, orderNo, slipFile) {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (!target) return;
   const body = lines.map((l) => `${l.qty}x ${l.name}`).join(", ");
-  try {
-    await client.pushMessage(target, {
+
+  // Save the slip photo so you can see it right here in the group and
+  // check the payment yourself, without opening Cloudinary.
+  let slipUrl = null;
+  if (slipFile && slipFile.buffer) {
+    try {
+      slipUrl = await uploadSlipPhoto(slipFile.buffer, slipFile.mimetype);
+    } catch (err) {
+      console.error("Could not save slip photo for manual review:", err.message);
+    }
+  }
+
+  const mapsLink = mapsLinkFor(order.location, order.addressText);
+  const messages = [
+    {
       type: "text",
       text:
-        `⚠️ NEEDS MANUAL SLIP CHECK (via app)\n` +
+        `⚠️ NEEDS MANUAL SLIP CHECK #${orderNo || "---"} (via app)\n` +
         `Customer: ${order.name || "unknown"} (${order.phone || "no phone"})\n` +
         `Order: ${body}\n` +
-        `Total: ฿${total}\n` +
+        `Total to be paid: ฿${total}\n` +
+        `${mapsLink ? `Location: ${mapsLink}\n` : ""}` +
         `Reason: ${reason}\n` +
-        `Please contact them directly to confirm payment.`,
-    });
+        (slipUrl
+          ? `Their slip is below. Check the amount shows ฿${total}, then confirm with them.`
+          : `The slip photo could not be saved, so please ask them to send it to you directly.`),
+    },
+  ];
+  if (slipUrl) {
+    messages.push({ type: "image", originalContentUrl: slipUrl, previewImageUrl: slipUrl });
+  }
+  try {
+    await client.pushMessage(target, messages);
   } catch (err) {
     console.error("Failed to push LIFF manual-review alert:", err.message);
   }
@@ -3207,9 +3307,13 @@ async function handleEvent(event) {
     if (
       event.source.type === "group" &&
       event.source.groupId === process.env.LINE_INTERNAL_TARGET_ID &&
-      /^\d+(\.\d+)?$/.test(text)
+      /^(\d{1,4}\s+)?\d+(\.\d+)?$/.test(text.trim())
     ) {
-      return handleFeeReply(event.replyToken, parseFloat(text));
+      const parts = text.trim().split(/\s+/);
+      if (parts.length === 2) {
+        return handleFeeReply(event.replyToken, parseFloat(parts[1]), parts[0].padStart(3, "0"));
+      }
+      return handleFeeReply(event.replyToken, parseFloat(parts[0]), null);
     }
 
     if (process.env.ADMIN_USER_ID && userId === process.env.ADMIN_USER_ID) {

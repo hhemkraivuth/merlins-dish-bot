@@ -161,7 +161,9 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) 
     }
 
     if (!existing || !existing.found) {
-      const row = [phone, name || "", newOrderCount, now, lineUserId || ""];
+      // Leading apostrophe tells Google Sheets to keep this as text, so the
+      // leading 0 is not stripped (USER_ENTERED would turn 081... into 81...).
+      const row = ["'" + phone, name || "", newOrderCount, now, lineUserId || ""];
       await client.spreadsheets.values.append({
         spreadsheetId: process.env.GOOGLE_SHEET_ID,
         range: "Customers!A:E",
@@ -177,7 +179,7 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) 
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
       range: `Customers!A${sheetRow}:E${sheetRow}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[phone, name || existing.name, newOrderCount, now, lineUserId || ""]] },
+      requestBody: { values: [["'" + phone, name || existing.name, newOrderCount, now, lineUserId || ""]] },
     });
     invalidateCustomerCache();
     return { orderCount: newOrderCount, resetHappened: newOrderCount === 0 && priorCount !== 0 };

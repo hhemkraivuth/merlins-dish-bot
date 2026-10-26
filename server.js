@@ -2967,7 +2967,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     slipResult = await verifySlip(req.file.buffer, total);
   } catch (err) {
     console.error("Thunder API request failed (LIFF order):", err.message);
-    await forwardLiffOrderForManualReview(order, lines, total, "Slip check API did not respond.", orderNo, req.file);
+    await forwardLiffOrderForManualReview(order, lines, total, "Slip check API did not respond.", orderNo, req.file, { foodTotal, deliveryFeeAmount });
     return res.json({
       success: true,
       manualReview: true,
@@ -2984,7 +2984,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     if (code === "SLIP_NOT_FOUND" || code === "INVALID_IMAGE_FORMAT") {
       return res.status(409).json({ success: false, error: "SLIP_NOT_FOUND", message: "We couldn't read a slip in that photo. Please make sure the QR code area is clear." });
     }
-    await forwardLiffOrderForManualReview(order, lines, total, `Slip check error: ${code || "unknown"}`, orderNo, req.file);
+    await forwardLiffOrderForManualReview(order, lines, total, `Slip check error: ${code || "unknown"}`, orderNo, req.file, { foodTotal, deliveryFeeAmount });
     return res.json({
       success: true,
       manualReview: true,
@@ -3132,7 +3132,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   });
 });
 
-async function forwardLiffOrderForManualReview(order, lines, total, reason, orderNo, slipFile) {
+async function forwardLiffOrderForManualReview(order, lines, total, reason, orderNo, slipFile, fees) {
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (!target) return;
   const body = lines.map((l) => `${l.qty}x ${l.name}`).join(", ");
@@ -3149,6 +3149,22 @@ async function forwardLiffOrderForManualReview(order, lines, total, reason, orde
   }
 
   const mapsLink = mapsLinkFor(order.location, order.addressText);
+
+  // Distance from the Asok shop, worked out here from the pin so it does
+  // not depend on what the browser reported.
+  let km = typeof order.distanceKm === "number" ? order.distanceKm : null;
+  const shopLat = parseFloat(process.env.SHOP_LAT);
+  const shopLng = parseFloat(process.env.SHOP_LNG);
+  if (order.location && typeof order.location.lat === "number" && !isNaN(shopLat) && !isNaN(shopLng)) {
+    km = distanceKm(shopLat, shopLng, order.location.lat, order.location.lng);
+  }
+  const distanceLine = km != null ? `Distance from Asok: ${km.toFixed(1)}km\n` : `Distance from Asok: unknown (typed address, no pin)\n`;
+  const feeLine = fees
+    ? `Food ฿${fees.foodTotal} + delivery ฿${fees.deliveryFeeAmount} = ฿${total}\n`
+    : "";
+  const addressLine = order.addressText && order.addressText.trim() ? `Address: ${order.addressText.trim()}\n` : "";
+  const noteLine = order.addressNote ? `Rider note: ${order.addressNote}\n` : "";
+
   const messages = [
     {
       type: "text",
@@ -3157,7 +3173,11 @@ async function forwardLiffOrderForManualReview(order, lines, total, reason, orde
         `Customer: ${order.name || "unknown"} (${order.phone || "no phone"})\n` +
         `Order: ${body}\n` +
         `Total to be paid: ฿${total}\n` +
+        feeLine +
+        distanceLine +
         `${mapsLink ? `Location: ${mapsLink}\n` : ""}` +
+        addressLine +
+        noteLine +
         `Reason: ${reason}\n` +
         (slipUrl
           ? `Their slip is below. Check the amount shows ฿${total}, then confirm with them.`

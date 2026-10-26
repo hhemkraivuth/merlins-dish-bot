@@ -32,7 +32,7 @@ let scheduleDate = null; // "YYYY-MM-DD"
 let scheduleTime = null; // "HH:mm"
 let deliveryLocation = null; // { lat, lng } or null
 let manualAddress = "";
-let needsManualFee = null; // true/false/null (unknown yet) -- only true beyond the flat-rate tiers (>5km)
+let needsManualFee = null; // true/false/null (unknown yet) -- only true beyond the flat-rate tiers (>10km)
 let confirmedDeliveryFee = 0; // auto-set for 0-5km tiers, or set once Merlin's Dish replies for a >5km order
 let feeRequestId = null; // sent back with the final order so the server can verify the fee itself
 let distanceKm = null;
@@ -40,7 +40,7 @@ let distanceKm = null;
 // ---------- delivery fee tiers ----------
 // 0-2km: free when the food total (after promos and rewards) reaches the
 // minimum spend, otherwise a small flat fee. 2-5km: flat ฿50 whatever the
-// spend. >5km: manual confirmation by Merlin's Dish. The minimum spend and
+// spend. 5-7.5km: flat ฿120. 7.5-10km: flat ฿180. >10km: manual confirmation by Merlin's Dish. The minimum spend and
 // small fee come from the server (/api/shop-info), so a change in Railway
 // variables reaches the app with no code edit. Mirrors server.js.
 function freeDeliveryMin() {
@@ -55,6 +55,8 @@ function computeDeliveryFee(km, foodTotal) {
     return { fee, manual: false, label: fee === 0 ? "FREE (within 2km)" : `฿${fee} (under ฿${freeDeliveryMin()})` };
   }
   if (km <= 5) return { fee: 50, manual: false, label: "฿50 (2-5km)" };
+  if (km <= 7.5) return { fee: 120, manual: false, label: "฿120 (5-7.5km)" };
+  if (km <= 10) return { fee: 180, manual: false, label: "฿180 (7.5-10km)" };
   return { fee: null, manual: true, label: null };
 }
 
@@ -162,7 +164,7 @@ async function init() {
     // Keep the delivery wording in the static page in step with the server's numbers.
     const dfNote = document.getElementById("free-delivery-note");
     if (dfNote) {
-      dfNote.textContent = `🎉 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up (฿${smallOrderFee()} below that), flat ฿50 for 2-5km, from Asok area`;
+      dfNote.textContent = `🎉 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up (฿${smallOrderFee()} below that), flat ฿50 for 2-5km, ฿120 for 5-7.5km, ฿180 for 7.5-10km, from Asok area`;
     }
     const dfLi = document.getElementById("direct-free-delivery-li");
     if (dfLi) dfLi.textContent = `🚚 Free delivery within 2km`;
@@ -1001,7 +1003,7 @@ function renderLocationResult() {
   if (SHOP_INFO.shopLat != null && SHOP_INFO.shopLng != null && distanceKm != null) {
     const tier = computeDeliveryFee(distanceKm, cartTotal());
     if (tier.manual) {
-      resultEl.textContent = `${distanceKm.toFixed(1)}km away, outside our 5km delivery zone. Merlin's Dish will confirm the delivery fee shortly.`;
+      resultEl.textContent = `${distanceKm.toFixed(1)}km away, outside our 10km delivery zone. Merlin's Dish will confirm the delivery fee shortly.`;
       resultEl.classList.add("manual");
     } else if (tier.fee === 0) {
       resultEl.textContent = `${distanceKm.toFixed(1)}km away, free delivery! 🎉`;
@@ -1100,6 +1102,10 @@ async function requestDeliveryFeeAndWait() {
         items: cartLines().map((l) => ({ itemId: l.itemId, qty: l.qty, pastaChoice: l.pastaChoice, sizeChoice: l.sizeChoice })),
         distanceKm,
         addressNote,
+        location: deliveryLocation,
+        addressText: manualAddress || null,
+        customerName: document.getElementById("cart-name-input").value.trim(),
+        phone: document.getElementById("cart-phone-input").value.trim(),
       }),
     });
     const data = await res.json();
@@ -1413,7 +1419,10 @@ function wireStaticEvents() {
   document.getElementById("use-my-location-btn").addEventListener("click", () => useMyLocation(false));
   document.getElementById("manual-address").addEventListener("input", (e) => {
     manualAddress = e.target.value;
-    if (manualAddress.trim().length >= 5) {
+    // When the map works, the pin stays the source of truth and a typed
+    // address is just extra detail for the rider. Only when the map failed
+    // to load does a typed address stand in for the pin.
+    if (!map && manualAddress.trim().length >= 5) {
       deliveryLocation = null;
       needsManualFee = true;
       distanceKm = null;
@@ -1421,9 +1430,14 @@ function wireStaticEvents() {
   });
 
   document.getElementById("to-review-btn").addEventListener("click", async () => {
-    if (!deliveryLocation && manualAddress.trim().length < 5) {
-      showToast("Please set your delivery location below first.", true);
+    if (map && !deliveryLocation) {
+      showToast("Please tap \"Use my current location\" or drag the pin to your delivery spot first.", true);
       flashInvalid("map");
+      return;
+    }
+    if (!map && !deliveryLocation && manualAddress.trim().length < 5) {
+      showToast("Please type your delivery address first.", true);
+      flashInvalid("manual-address");
       return;
     }
     addressNote = document.getElementById("address-note").value.trim();

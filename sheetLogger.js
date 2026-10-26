@@ -44,6 +44,17 @@ function getClient() {
   return sheetsClient;
 }
 
+// Digits only, forced to a single leading 0, with an apostrophe in front so
+// Google Sheets stores it as text instead of dropping the 0 (USER_ENTERED
+// would turn 0815656587 into the number 815656587).
+function textPhone(raw) {
+  if (!raw) return "";
+  let digits = String(raw).replace(/\D/g, "");
+  if (digits.startsWith("66") && digits.length === 11) digits = "0" + digits.slice(2);
+  if (digits && !digits.startsWith("0")) digits = "0" + digits;
+  return digits ? "'" + digits : "";
+}
+
 // order = { name, address, phone, items: [{name, qty, price}], total, slipRef, slipUrl, discountAmount, promoLabel }
 //
 // Logs to the "Orders" tab of the Bot Activity sheet (the same file as
@@ -51,7 +62,9 @@ function getClient() {
 // Lily's request so this never touches her cost calculations/formulas.
 // If the "Orders" tab doesn't exist yet, create it once with headers:
 // Date | Time | Items | Order From | Type | Qty (Portions) | Total (THB) |
-// Customer Name | Address | Phone | Slip Ref | Slip URL
+// Customer Name | Address | Phone | Slip Ref | Slip URL | Order No
+// (Order No, column M, is the 3-digit daily number such as 001 shown in the
+// private LINE group. Add the header "Order No" to M1 once.)
 //
 // GROSS vs NET, matching the Grab screenshot-logging convention (see
 // claude/daily-screenshot-logging-workflow.md): "Total (THB)" on the
@@ -91,9 +104,10 @@ async function logOrder(order) {
     grossTotal, // Total (THB) -- GROSS, matching Grab's Order value convention
     order.name,
     order.address,
-    order.phone,
+    textPhone(order.phone), // kept as text so the leading 0 survives
     order.slipRef || "",
     order.slipUrl || "", // Link to the saved slip photo, for reference
+    order.orderNo ? "'" + order.orderNo : "", // Order No, leading apostrophe keeps 001 as text
   ];
 
   const rows = [orderRow];
@@ -112,19 +126,45 @@ async function logOrder(order) {
       "",
       order.slipRef || "",
       "",
+      order.orderNo ? "'" + order.orderNo : "",
     ]);
   }
 
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Orders!A:L",
+      range: "Orders!A:M",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: rows },
     });
   } catch (err) {
     // Never let a logging failure break the order flow for the customer.
     console.error("Sheet logging failed (order still went through):", err.message);
+  }
+}
+
+// Highest Order No already logged today (Bangkok date), so the daily
+// counter carries on correctly after a restart or redeploy. Returns 0 if
+// the sheet isn't configured, the Order No column is empty, or the read fails.
+async function getTodaysMaxOrderNo(todayDDMMYYYY) {
+  const client = getClient();
+  if (!client) return 0;
+  try {
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Orders!A:M",
+    });
+    const rows = res.data.values || [];
+    let max = 0;
+    for (const row of rows) {
+      if ((row[0] || "").trim() !== todayDDMMYYYY) continue;
+      const n = parseInt(String(row[12] || "").replace(/[^0-9]/g, ""), 10);
+      if (!isNaN(n) && n > max) max = n;
+    }
+    return max;
+  } catch (err) {
+    console.error("Could not read today's order numbers (counter starts from 0):", err.message);
+    return 0;
   }
 }
 
@@ -159,4 +199,4 @@ async function logMenuTap({ userId, displayName, trigger }) {
   }
 }
 
-module.exports = { logOrder, logMenuTap };
+module.exports = { logOrder, logMenuTap, getTodaysMaxOrderNo };

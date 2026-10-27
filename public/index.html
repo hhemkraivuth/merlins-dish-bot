@@ -66,11 +66,15 @@
 
   <nav id="category-tabs" class="category-tabs"></nav>
 
-  <p class="direct-order-banner">Order direct and skip the delivery-app markup. Every baht goes further into the comfort we cook for you, made with love in our little Bangkok kitchen.</p>
+  <p class="direct-order-banner">Order direct. Lower prices, free delivery within 2km, points on every order.</p>
 
   <main id="item-list" class="item-list"></main>
 
   <div id="cart-bar" class="cart-bar hidden">
+    <div class="delivery-nudge" id="delivery-nudge">
+      <span id="delivery-nudge-text"></span>
+      <div class="nudge-track"><div class="nudge-fill" id="delivery-nudge-fill"></div></div>
+    </div>
     <div class="cart-bar-info">
       <span id="cart-count">0 items</span>
       <strong id="cart-total">฿0</strong>
@@ -166,7 +170,7 @@
 
     <section class="field-group">
       <label>Delivery location</label>
-      <p id="free-delivery-note" class="free-delivery-note">🎉 Free delivery within 2km on orders ฿300 and up (฿30 below that), flat ฿50 for 2-5km, ฿120 for 5-7.5km, ฿180 for 7.5-10km, from Asok area</p>
+      <div id="free-delivery-note" class="free-delivery-note"></div>
       <p class="hint">Touch and hold the pin, then drag it to where you want the delivery -- it doesn't have to be where you are right now.</p>
       <div id="map" class="map-container"></div>
       <button type="button" id="use-my-location-btn" class="btn btn-secondary btn-block">📍 Use my current location</button>

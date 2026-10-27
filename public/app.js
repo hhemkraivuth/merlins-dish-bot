@@ -164,7 +164,14 @@ async function init() {
     // Keep the delivery wording in the static page in step with the server's numbers.
     const dfNote = document.getElementById("free-delivery-note");
     if (dfNote) {
-      dfNote.textContent = `🎉 Free delivery within 2km on orders ฿${freeDeliveryMin()} and up (฿${smallOrderFee()} below that), flat ฿50 for 2-5km, ฿120 for 5-7.5km, ฿180 for 7.5-10km, from Asok area`;
+      dfNote.innerHTML = `
+        <p class="dn-title">🚚 Delivery fees from Asok branch</p>
+        <ul class="dn-list">
+          <li><span>Within 2km</span><strong>Free on orders over ฿${freeDeliveryMin()}, or ฿${smallOrderFee()} flat</strong></li>
+          <li><span>2-5km</span><strong>฿50</strong></li>
+          <li><span>5-7.5km</span><strong>฿120</strong></li>
+          <li><span>7.5-10km</span><strong>฿180</strong></li>
+        </ul>`;
     }
     const dfLi = document.getElementById("direct-free-delivery-li");
     if (dfLi) dfLi.textContent = `🚚 Free delivery within 2km`;
@@ -184,8 +191,10 @@ async function init() {
   wireStaticEvents();
   if (ANNOUNCEMENT) {
     showAnnouncementScreen();
-  } else {
+  } else if (SHOW_DIRECT_ORDER_POPUP) {
     showDirectOrderScreen();
+  } else {
+    showScreen("menu-screen");
   }
 }
 
@@ -214,6 +223,10 @@ function showDirectOrderScreen() {
 }
 
 // ---------- menu rendering ----------
+
+// Entrance "Why order direct?" pop-up is switched off while the two entry
+// links (Instagram and LINE) are being finalised. Set to true to bring it back.
+const SHOW_DIRECT_ORDER_POPUP = false;
 
 function renderCategoryTabs() {
   const nav = document.getElementById("category-tabs");
@@ -281,13 +294,22 @@ function setupSectionScrollSpy() {
   sections.forEach((el) => observer.observe(el));
 }
 
+// Grab-style card: text on the left, a large photo on the right with the
+// add control sitting on the photo corner. Dishes with no choices (Bacon
+// Steak, soups, Tuscan Pork Braise, extras, drinks) add straight from the
+// photo button. Dishes that need a size or pasta open the option sheet.
+const DESCRIPTION_SEE_MORE_CHARS = 70;
+
+function dishCartQty(dishId) {
+  return cartLines().filter((l) => l.itemId === dishId).reduce((n, l) => n + l.qty, 0);
+}
+
 function buildItemCard(dish) {
   const card = document.createElement("div");
   card.className = "item-card" + (!dish.available ? " unavailable" : "");
+  card.dataset.dish = dish.id;
 
-  const img = dish.image
-    ? `<img class="item-img" src="${dish.image}" alt="${dish.name}" />`
-    : `<div class="item-img placeholder">🍽️</div>`;
+  const needsChoice = !!(dish.requiresSize || dish.requiresPasta);
 
   let stockNote = "";
   if (!dish.available) {
@@ -296,208 +318,188 @@ function buildItemCard(dish) {
     stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
   }
 
-  // Item-specific promos (e.g. "Bolognese 20% off") get a visible green
-  // badge + strikethrough right on the menu card. The storewide promo
-  // (applies to everything with no item-specific promo of its own) is
-  // NEVER advertised per-item here -- it only shows up as a single line
-  // at checkout, so a wall of "10% off" tags doesn't read as "everything
-  // must go" clearance pricing.
-  const priceWithPromo = (basePrice) => {
-    if (dish.promoPercentOff == null) return basePrice;
-    return Math.round(basePrice * (1 - dish.promoPercentOff / 100));
-  };
   const priceTag = (basePrice) => {
     if (dish.promoPercentOff == null || !dish.promoIsItemSpecific) return `<p class="item-price">฿${basePrice}</p>`;
-    return `<p class="item-price"><span class="item-price-was">฿${basePrice}</span> ฿${priceWithPromo(basePrice)} <span class="item-promo-badge">${dish.promoPercentOff}% off</span></p>`;
+    return `<p class="item-price"><span class="item-price-was">฿${basePrice}</span> ฿${promoPrice(dish, basePrice)} <span class="item-promo-badge">${dish.promoPercentOff}% off</span></p>`;
   };
 
-  if (dish.requiresSize) {
-    card.innerHTML = `
-      ${img}
-      <div class="item-body">
-        <h3>${dish.name}</h3>
-        ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
+  const img = dish.image
+    ? `<img class="item-img" src="${dish.image}" alt="${dish.name}" loading="lazy" />`
+    : `<div class="item-img placeholder">🍽️</div>`;
+
+  const longDesc = dish.description && dish.description.length > DESCRIPTION_SEE_MORE_CHARS;
+
+  card.innerHTML = `
+    <div class="item-photo">${img}</div>
+    <div class="item-body">
+      ${dish.badge ? `<p class="item-badge">${dish.badge}</p>` : ""}
+      <h3>${dish.name}</h3>
+      ${dish.description ? `<p class="item-description${longDesc ? " clamped" : ""}">${dish.description}</p>` : ""}
+      ${stockNote}
+      <div class="item-foot">
         ${priceTag(dish.price)}
-        ${stockNote}
-        <select class="size-select" ${!dish.available ? "disabled" : ""}>
-          <option value="">Choose serving size...</option>
-          ${SIZE_OPTIONS.map((s) => {
-            const soldOut = (dish.unavailableVariants || []).includes(s.id);
-            return `<option value="${s.id}" ${soldOut ? "disabled" : ""}>${s.name}${s.mandatorySurcharge ? ` (+฿${s.mandatorySurcharge})` : ""}${soldOut ? " -- Sold out" : ""}</option>`;
-          }).join("")}
-        </select>
-        <div class="variant-row">
-          <div class="stepper local-stepper" data-qty="0">
-            <button type="button" class="minus">−</button>
-            <span class="qty">0</span>
-            <button type="button" class="plus">+</button>
-          </div>
-          <button type="button" class="add-line-btn" disabled>Add</button>
-        </div>
+        ${longDesc ? `<button type="button" class="see-more-btn">See more</button>` : ""}
       </div>
-    `;
-    const select = card.querySelector(".size-select");
-    const stepper = card.querySelector(".local-stepper");
-    const addBtn = card.querySelector(".add-line-btn");
-    const qtyEl = stepper.querySelector(".qty");
+    </div>
+    <div class="item-control"></div>
+  `;
 
-    const updateAddEnabled = () => {
-      const qty = parseInt(stepper.dataset.qty, 10);
-      addBtn.disabled = !dish.available || !select.value || qty < 1;
-    };
-    select.addEventListener("change", updateAddEnabled);
-
-    stepper.querySelector(".minus").addEventListener("click", () => {
-      let n = parseInt(stepper.dataset.qty, 10);
-      if (n > 0) {
-        n -= 1;
-        stepper.dataset.qty = n;
-        qtyEl.textContent = n;
-        updateAddEnabled();
-      }
-    });
-    stepper.querySelector(".plus").addEventListener("click", () => {
-      let n = parseInt(stepper.dataset.qty, 10);
-      const max = dish.remaining != null ? dish.remaining : Infinity;
-      if (n < max) {
-        n += 1;
-        stepper.dataset.qty = n;
-        qtyEl.textContent = n;
-        updateAddEnabled();
-      }
-    });
-
-    addBtn.addEventListener("click", () => {
-      const sizeId = select.value;
-      const qty = parseInt(stepper.dataset.qty, 10);
-      if (qty < 1) return;
-      const size = SIZE_OPTIONS.find((s) => s.id === sizeId);
-      const surcharge = size ? size.mandatorySurcharge || 0 : 0;
-      const lineId = `${dish.id}:${sizeId}`;
-      const name = `${dish.name} (${size ? size.name : sizeId})`;
-      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, null, sizeId, dish.price + surcharge);
-      showToast(`Added ${qty}x ${name}`);
-      select.value = "";
-      stepper.dataset.qty = 0;
-      qtyEl.textContent = 0;
-      updateAddEnabled();
-    });
-
-    updateAddEnabled();
-  } else if (dish.requiresPasta) {
-    card.innerHTML = `
-      ${img}
-      <div class="item-body">
-        <h3>${dish.name}</h3>
-        ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
-        ${priceTag(dish.price)}
-        ${stockNote}
-        <select class="pasta-select" ${!dish.available ? "disabled" : ""}>
-          <option value="">Choose pasta...</option>
-          ${PASTA_OPTIONS.map((p) => {
-            const soldOut = (dish.unavailableVariants || []).includes(p.id);
-            return `<option value="${p.id}" ${soldOut ? "disabled" : ""}>${p.name}${p.mandatorySurcharge ? ` (+฿${p.mandatorySurcharge})` : ""}${soldOut ? " -- Sold out" : ""}</option>`;
-          }).join("")}
-        </select>
-        <div class="variant-row">
-          <div class="stepper local-stepper" data-qty="0">
-            <button type="button" class="minus">−</button>
-            <span class="qty">0</span>
-            <button type="button" class="plus">+</button>
-          </div>
-          <button type="button" class="add-line-btn" disabled>Add</button>
-        </div>
-      </div>
-    `;
-    const select = card.querySelector(".pasta-select");
-    const stepper = card.querySelector(".local-stepper");
-    const addBtn = card.querySelector(".add-line-btn");
-    const qtyEl = stepper.querySelector(".qty");
-
-    const updateAddEnabled = () => {
-      const qty = parseInt(stepper.dataset.qty, 10);
-      addBtn.disabled = !dish.available || !select.value || qty < 1;
-    };
-    select.addEventListener("change", updateAddEnabled);
-
-    stepper.querySelector(".minus").addEventListener("click", () => {
-      let n = parseInt(stepper.dataset.qty, 10);
-      if (n > 0) {
-        n -= 1;
-        stepper.dataset.qty = n;
-        qtyEl.textContent = n;
-        updateAddEnabled();
-      }
-    });
-    stepper.querySelector(".plus").addEventListener("click", () => {
-      let n = parseInt(stepper.dataset.qty, 10);
-      const max = dish.remaining != null ? dish.remaining : Infinity;
-      if (n < max) {
-        n += 1;
-        stepper.dataset.qty = n;
-        qtyEl.textContent = n;
-        updateAddEnabled();
-      }
-    });
-
-    addBtn.addEventListener("click", () => {
-      const pastaId = select.value;
-      const qty = parseInt(stepper.dataset.qty, 10);
-      if (qty < 1) return;
-      const pasta = PASTA_OPTIONS.find((p) => p.id === pastaId);
-      const surcharge = pasta ? pasta.mandatorySurcharge || 0 : 0;
-      const lineId = `${dish.id}:${pastaId}`;
-      const name = `${dish.name} (${pasta ? pasta.name : pastaId})`;
-      addToCart(lineId, dish.id, name, priceWithPromo(dish.price + surcharge), qty, pastaId, undefined, dish.price + surcharge);
-      showToast(`Added ${qty}x ${name}`);
-      select.value = "";
-      stepper.dataset.qty = 0;
-      qtyEl.textContent = 0;
-      updateAddEnabled();
-    });
-
-    updateAddEnabled();
-  } else {
-    const currentQty = cart[dish.id] ? cart[dish.id].qty : 0;
-    card.innerHTML = `
-      ${img}
-      <div class="item-body">
-        <h3>${dish.name}</h3>
-        ${dish.description ? `<p class="item-description">${dish.description}</p>` : ""}
-        ${priceTag(dish.price)}
-        ${stockNote}
-        <div class="stepper" data-item="${dish.id}">
-          <button type="button" class="minus">−</button>
-          <span class="qty">${currentQty}</span>
-          <button type="button" class="plus">+</button>
-        </div>
-      </div>
-    `;
-    const stepper = card.querySelector(".stepper");
-    const qtyEl = stepper.querySelector(".qty");
-
-    stepper.querySelector(".minus").addEventListener("click", () => {
-      if (!cart[dish.id]) return;
-      cart[dish.id].qty -= 1;
-      if (cart[dish.id].qty <= 0) delete cart[dish.id];
-      qtyEl.textContent = cart[dish.id] ? cart[dish.id].qty : 0;
-      updateCartBar();
-    });
-    stepper.querySelector(".plus").addEventListener("click", () => {
-      if (!dish.available) return;
-      const existingQty = cart[dish.id] ? cart[dish.id].qty : 0;
-      const max = dish.remaining != null ? dish.remaining : Infinity;
-      if (existingQty >= max) {
-        showToast(`Only ${max} of "${dish.name}" left`);
-        return;
-      }
-      addToCart(dish.id, dish.id, dish.name, priceWithPromo(dish.price), 1, null, undefined, dish.price);
-      qtyEl.textContent = cart[dish.id].qty;
-      showToast(`Added 1x ${dish.name}`);
+  const desc = card.querySelector(".item-description");
+  const seeMore = card.querySelector(".see-more-btn");
+  if (seeMore) {
+    seeMore.addEventListener("click", () => {
+      const open = desc.classList.toggle("clamped") === false;
+      seeMore.textContent = open ? "See less" : "See more";
     });
   }
 
+  const control = card.querySelector(".item-control");
+  card._renderControl = () => {
+    const qty = dishCartQty(dish.id);
+    if (!dish.available) {
+      control.innerHTML = "";
+      return;
+    }
+    if (needsChoice) {
+      control.innerHTML = `<button type="button" class="add-circle" aria-label="Choose options for ${dish.name}">+${qty > 0 ? `<span class="add-badge">${qty}</span>` : ""}</button>`;
+      control.querySelector(".add-circle").addEventListener("click", () => openOptionSheet(dish));
+      return;
+    }
+    if (qty === 0) {
+      control.innerHTML = `<button type="button" class="add-circle" aria-label="Add ${dish.name}">+</button>`;
+      control.querySelector(".add-circle").addEventListener("click", () => addSimpleItem(dish));
+    } else {
+      control.innerHTML = `
+        <div class="photo-stepper">
+          <button type="button" class="minus" aria-label="Remove one">−</button>
+          <span class="qty">${qty}</span>
+          <button type="button" class="plus" aria-label="Add one">+</button>
+        </div>`;
+      control.querySelector(".minus").addEventListener("click", () => {
+        if (!cart[dish.id]) return;
+        cart[dish.id].qty -= 1;
+        if (cart[dish.id].qty <= 0) delete cart[dish.id];
+        updateCartBar();
+      });
+      control.querySelector(".plus").addEventListener("click", () => addSimpleItem(dish));
+    }
+  };
+  card._renderControl();
   return card;
+}
+
+function promoPrice(dish, basePrice) {
+  if (dish.promoPercentOff == null) return basePrice;
+  return Math.round(basePrice * (1 - dish.promoPercentOff / 100));
+}
+
+function addSimpleItem(dish) {
+  const existingQty = cart[dish.id] ? cart[dish.id].qty : 0;
+  const max = dish.remaining != null ? dish.remaining : Infinity;
+  if (existingQty >= max) {
+    showToast(`Only ${max} of "${dish.name}" left`);
+    return;
+  }
+  addToCart(dish.id, dish.id, dish.name, promoPrice(dish, dish.price), 1, null, undefined, dish.price);
+  showToast(`Added 1x ${dish.name}`);
+}
+
+// Re-draws every card's add control so the photo badges and steppers
+// always match the cart (called from updateCartBar).
+function refreshCardControls() {
+  document.querySelectorAll(".item-card").forEach((c) => c._renderControl && c._renderControl());
+}
+
+// ---------- option sheet (size / pasta, second step) ----------
+
+function openOptionSheet(dish) {
+  closeOptionSheet();
+  const isSize = !!dish.requiresSize;
+  const options = isSize ? SIZE_OPTIONS : PASTA_OPTIONS;
+  const label = isSize ? "Choose serving size" : "Choose your pasta";
+  const soldOutIds = dish.unavailableVariants || [];
+  let selectedId = null;
+  if (isSize) {
+    const firstOpen = options.find((o) => !soldOutIds.includes(o.id));
+    selectedId = firstOpen ? firstOpen.id : null;
+  }
+  let qty = 1;
+
+  const overlay = document.createElement("div");
+  overlay.className = "sheet-overlay";
+  overlay.id = "option-sheet";
+  overlay.innerHTML = `
+    <div class="sheet-panel" role="dialog" aria-label="${dish.name}">
+      <button type="button" class="sheet-close" aria-label="Close">✕</button>
+      <h3 class="sheet-title">${dish.name}</h3>
+      <p class="sheet-label">${label}</p>
+      <div class="sheet-options">
+        ${options.map((o) => {
+          const soldOut = soldOutIds.includes(o.id);
+          const sur = o.mandatorySurcharge ? `+฿${o.mandatorySurcharge}` : "Included";
+          return `<button type="button" class="sheet-option" data-id="${o.id}" ${soldOut ? "disabled" : ""}>
+            <span class="radio"></span>
+            <span class="opt-name">${o.name}${soldOut ? " (sold out)" : ""}</span>
+            <span class="opt-price">${sur}</span>
+          </button>`;
+        }).join("")}
+      </div>
+      <div class="sheet-footer">
+        <div class="stepper sheet-stepper">
+          <button type="button" class="minus">−</button>
+          <span class="qty">1</span>
+          <button type="button" class="plus">+</button>
+        </div>
+        <button type="button" class="sheet-add-btn" disabled>Add</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const addBtn = overlay.querySelector(".sheet-add-btn");
+  const qtyEl = overlay.querySelector(".qty");
+  const optionEls = overlay.querySelectorAll(".sheet-option");
+
+  const surchargeFor = () => {
+    const o = options.find((x) => x.id === selectedId);
+    return o ? o.mandatorySurcharge || 0 : 0;
+  };
+  const refresh = () => {
+    optionEls.forEach((el) => el.classList.toggle("selected", el.dataset.id === selectedId));
+    qtyEl.textContent = qty;
+    addBtn.disabled = !selectedId;
+    addBtn.textContent = selectedId
+      ? `Add ฿${promoPrice(dish, dish.price + surchargeFor()) * qty}`
+      : label;
+  };
+  optionEls.forEach((el) => el.addEventListener("click", () => { selectedId = el.dataset.id; refresh(); }));
+  overlay.querySelector(".minus").addEventListener("click", () => { if (qty > 1) { qty -= 1; refresh(); } });
+  overlay.querySelector(".plus").addEventListener("click", () => {
+    const max = dish.remaining != null ? dish.remaining : Infinity;
+    if (qty < max) { qty += 1; refresh(); }
+  });
+  overlay.querySelector(".sheet-close").addEventListener("click", closeOptionSheet);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOptionSheet(); });
+
+  addBtn.addEventListener("click", () => {
+    if (!selectedId) return;
+    const opt = options.find((o) => o.id === selectedId);
+    const surcharge = opt.mandatorySurcharge || 0;
+    const lineId = `${dish.id}:${selectedId}`;
+    const name = `${dish.name} (${opt.name})`;
+    addToCart(
+      lineId, dish.id, name, promoPrice(dish, dish.price + surcharge), qty,
+      isSize ? null : selectedId, isSize ? selectedId : undefined, dish.price + surcharge
+    );
+    showToast(`Added ${qty}x ${name}`);
+    closeOptionSheet();
+  });
+  refresh();
+}
+
+function closeOptionSheet() {
+  const el = document.getElementById("option-sheet");
+  if (el) el.remove();
 }
 
 function addToCart(lineId, itemId, name, price, qty, pastaChoice, sizeChoice, grossPrice) {
@@ -736,6 +738,7 @@ function renderReviewLinesIfVisible() {
 
 
 function updateCartBar() {
+  refreshCardControls();
   const bar = document.getElementById("cart-bar");
   const lines = cartLines();
   const count = lines.reduce((s, l) => s + l.qty, 0);
@@ -746,6 +749,25 @@ function updateCartBar() {
   bar.classList.remove("hidden");
   document.getElementById("cart-count").textContent = `${count} item${count > 1 ? "s" : ""}`;
   document.getElementById("cart-total").textContent = `฿${cartTotal()}`;
+  updateDeliveryNudge();
+}
+
+// Grab-style progress nudge above the cart bar: how far the basket is from
+// free delivery (applies to deliveries within 2km).
+function updateDeliveryNudge() {
+  const nudge = document.getElementById("delivery-nudge");
+  if (!nudge) return;
+  const min = freeDeliveryMin();
+  const total = cartTotal();
+  const left = min - total;
+  const text = document.getElementById("delivery-nudge-text");
+  const fill = document.getElementById("delivery-nudge-fill");
+  if (left > 0) {
+    text.textContent = `Add ฿${left} more for free delivery within 2km`;
+  } else {
+    text.textContent = "🎉 You've unlocked free delivery within 2km";
+  }
+  fill.style.width = `${Math.min(100, Math.round((total / min) * 100))}%`;
 }
 
 // ---------- drinks/bacon upsell screen ----------

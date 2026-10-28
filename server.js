@@ -67,7 +67,7 @@ const {
   parseRewardChangeCommand,
   TIER_LOW,
   TIER_HIGH,
-} = require("./customers");
+} = require("./customerStore");
 const {
   TZ: SCHEDULE_TZ,
   firstAvailableDate,

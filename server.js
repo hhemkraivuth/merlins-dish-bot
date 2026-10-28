@@ -59,6 +59,7 @@ const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnounce
 const { logOrder, logMenuTap, getTodaysMaxOrderNo } = require("./sheetLogger");
 const {
   getCustomer,
+  getCustomerByLineId,
   recordOrder,
   normalisePhone,
   getRewardConfig,
@@ -2572,6 +2573,7 @@ app.get("/api/menu", (req, res) => {
       category: d.category,
       image: d.image,
       description: d.description || null,
+      badge: d.badge || null,
       requiresPasta: !!d.requiresPasta,
       requiresSize: !!d.requiresSize,
       available: !isUnavailable(d.id),
@@ -2749,6 +2751,38 @@ app.get("/api/customer-lookup", async (req, res) => {
     ordersToHigh: customer.ordersToHigh,
     rewardConfig,
   });
+});
+
+// Personalisation: who is this LINE user, and what did they last tell us?
+// The browser sends its LIFF access token; we ask LINE who that token belongs
+// to, so a customer can only ever read their OWN saved details (a bare
+// lineUserId sent from the browser could be faked, a token cannot).
+app.get("/api/me", async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token) return res.json({ known: false });
+  try {
+    const profileRes = await axios.get("https://api.line.me/v2/profile", {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 5000,
+    });
+    const { userId, displayName } = profileRes.data || {};
+    if (!userId) return res.json({ known: false });
+    const saved = await getCustomerByLineId(userId);
+    res.set("Cache-Control", "no-store");
+    res.json({
+      known: !!saved,
+      displayName: displayName || "",
+      name: saved ? saved.name : "",
+      phone: saved ? saved.phone : "",
+      location: saved && saved.lastLat != null && saved.lastLng != null ? { lat: saved.lastLat, lng: saved.lastLng } : null,
+      addressText: saved ? saved.lastAddress : "",
+      addressNote: saved ? saved.lastNote : "",
+    });
+  } catch (err) {
+    console.error("/api/me failed:", err.message);
+    res.json({ known: false });
+  }
 });
 
 app.post("/api/place-order", upload.single("slip"), async (req, res) => {
@@ -3072,6 +3106,10 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     name: order.name,
     lineUserId: order.lineUserId,
     redeemedTier: redeemApplied ? redeemTier : null,
+    lastLat: order.location && Number.isFinite(order.location.lat) ? order.location.lat : null,
+    lastLng: order.location && Number.isFinite(order.location.lng) ? order.location.lng : null,
+    lastAddress: order.addressText ? String(order.addressText).slice(0, 300) : "",
+    lastNote: order.addressNote ? String(order.addressNote).slice(0, 200) : "",
   });
 
   if (loyaltyResult && loyaltyResult.resetHappened && target) {

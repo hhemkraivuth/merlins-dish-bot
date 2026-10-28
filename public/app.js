@@ -1430,13 +1430,13 @@ async function submitOrder() {
 }
 
 // Asks the server every 3 seconds whether the kitchen has approved a slip that
-// had to be checked by hand. Stops after 15 minutes (the customer still gets
+// had to be checked by hand. Stops after 5 minutes (the customer still gets
 // a LINE message when it is approved) or when they start a new order.
 let manualWatchId = 0;
 async function watchManualOrder(token, placedMessage) {
   const myId = ++manualWatchId;
   if (!token) return;
-  const stopAt = Date.now() + 15 * 60 * 1000;
+  const stopAt = Date.now() + 5 * 60 * 1000;
   while (myId === manualWatchId && Date.now() < stopAt) {
     await new Promise((r) => setTimeout(r, 3000));
     if (myId !== manualWatchId) return;

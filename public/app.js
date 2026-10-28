@@ -634,11 +634,28 @@ async function runCustomerLookup() {
   lastLookedUpPhone = phone;
 
   try {
-    const res = await fetch(`/api/customer-lookup?phone=${encodeURIComponent(phone)}`);
+    const typedName = document.getElementById("cart-name-input").value.trim();
+    const res = await fetch(
+      `/api/customer-lookup?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(typedName)}`
+    );
     loyaltyState = await res.json();
   } catch (err) {
     console.error("Customer lookup failed:", err);
     loyaltyState = null;
+  }
+  // A returning customer who isn't in LINE (for example from the Instagram
+  // link) is recognised by phone number. Skipped when a LINE account already
+  // supplied saved details, and never overwrites a pin they have dropped.
+  if (loyaltyState && loyaltyState.saved && !SAVED_PROFILE) {
+    const s = loyaltyState.saved;
+    SAVED_PROFILE = {
+      name: s.name || "",
+      phone,
+      location: s.location || null,
+      addressText: s.addressText || "",
+      addressNote: s.addressNote || "",
+    };
+    applySavedProfile();
   }
   // Default which tier to offer: prefer the lower one if both are somehow
   // open (shouldn't happen once redeemed, but keeps this defensive).

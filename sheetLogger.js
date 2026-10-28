@@ -199,4 +199,40 @@ async function logMenuTap({ userId, displayName, trigger }) {
   }
 }
 
-module.exports = { logOrder, logMenuTap, getTodaysMaxOrderNo };
+
+// Counts how many portions of each dish were ordered directly (LINE Bot rows
+// of type "Order") in the last `days` days, read from the Orders tab. Item text
+// looks like "2x Noir Ragu + Pasta (Radiatori) (฿225), 1x Bacon Steak (฿0)".
+// Returns { counts: { <menuItemId>: portions }, ok } -- ok is false if the sheet
+// isn't configured or can't be read, so callers can simply show no tag.
+async function getDishOrderCounts(menu, days = 60) {
+  const client = getClient();
+  if (!client) return { counts: {}, ok: false };
+  try {
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Orders!A:G",
+    });
+    const rows = res.data.values || [];
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const byNameLength = [...menu].sort((a, b) => b.name.length - a.name.length);
+    const counts = {};
+    for (const row of rows) {
+      if ((row[3] || "").trim() !== "LINE Bot" || (row[4] || "").trim() !== "Order") continue;
+      const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((row[0] || "").trim());
+      if (!m || new Date(`${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}T12:00:00+07:00`).getTime() < cutoff) continue;
+      for (const part of String(row[2] || "").split(/,\s*(?=\d+x )/)) {
+        const p = /^(\d+)x\s+(.+?)\s*\(฿(\d+(?:\.\d+)?)\)\s*$/.exec(part.trim());
+        if (!p || Number(p[3]) === 0) continue; // skip free reward items
+        const dish = byNameLength.find((d) => p[2].toLowerCase().startsWith(d.name.toLowerCase()));
+        if (dish) counts[dish.id] = (counts[dish.id] || 0) + Number(p[1]);
+      }
+    }
+    return { counts, ok: true };
+  } catch (err) {
+    console.error("Could not count dish orders:", err.message);
+    return { counts: {}, ok: false };
+  }
+}
+
+module.exports = { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts };

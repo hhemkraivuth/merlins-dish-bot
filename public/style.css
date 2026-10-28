@@ -888,7 +888,12 @@ button, input, textarea, select {
 .upsell-subtext { margin: 0 0 8px; font-size: 13px; }
 
 /* greeting line, first thing on the page */
-.topbar .greeting { margin: 0 0 6px; font-size: 15px; font-weight: 700; color: #fff; }
+.topbar { position: relative; }
+.topbar .greeting {
+  position: absolute; top: 12px; right: 16px; margin: 0; max-width: 42%;
+  font-size: 15px; font-weight: 700; line-height: 1.2; color: #fff; text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 1;
+}
 
 /* ---- welcome popup: shows for 5 seconds, then fades out on its own ---- */
 .welcome-pop {

@@ -3022,10 +3022,11 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     slipResult = await verifySlip(req.file.buffer, total);
   } catch (err) {
     console.error("Thunder API request failed (LIFF order):", err.message);
-    await forwardLiffOrderForManualReview(order, lines, total, "Slip check API did not respond.", orderNo, req.file, { foodTotal, deliveryFeeAmount });
+    const held = await forwardLiffOrderForManualReview({ order, lines, foodTotal, deliveryFeeAmount, total, totalDiscount, promoLabelsUsed, redeemApplied, redeemTier, scheduledForMoment }, "Slip check API did not respond.", orderNo, req.file);
     return res.json({
       success: true,
       manualReview: true,
+      statusToken: held ? held.statusToken : null,
       needsManualFee: order.needsManualFee,
       message: "We couldn't verify your slip automatically, so Merlin's Dish will confirm it directly.",
     });
@@ -3039,10 +3040,11 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     if (code === "SLIP_NOT_FOUND" || code === "INVALID_IMAGE_FORMAT") {
       return res.status(409).json({ success: false, error: "SLIP_NOT_FOUND", message: "We couldn't read a slip in that photo. Please make sure the QR code area is clear." });
     }
-    await forwardLiffOrderForManualReview(order, lines, total, `Slip check error: ${code || "unknown"}`, orderNo, req.file, { foodTotal, deliveryFeeAmount });
+    const held = await forwardLiffOrderForManualReview({ order, lines, foodTotal, deliveryFeeAmount, total, totalDiscount, promoLabelsUsed, redeemApplied, redeemTier, scheduledForMoment }, `Slip check error: ${code || "unknown"}`, orderNo, req.file);
     return res.json({
       success: true,
       manualReview: true,
+      statusToken: held ? held.statusToken : null,
       needsManualFee: order.needsManualFee,
       message: "We couldn't verify that automatically, so Merlin's Dish will confirm it directly.",
     });
@@ -3060,7 +3062,51 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     });
   }
 
-  // Verified -- decrement stock, forward to internal group, log, confirm.
+  const slipUrl = await uploadSlipPhoto(req.file.buffer, req.file.mimetype);
+
+  await completeLiffOrder({
+    order, lines, foodTotal, deliveryFeeAmount, total, totalDiscount, promoLabelsUsed,
+    redeemApplied, redeemTier, scheduledForMoment, orderNo, slipUrl,
+    slip: { amountInSlip: slip.amountInSlip, transRef: slip.transRef },
+    manual: false,
+  });
+
+  res.json({
+    success: true,
+    total,
+    needsManualFee: order.needsManualFee,
+    distanceKm: order.distanceKm,
+    slipRef: slip.transRef,
+  });
+});
+
+// Orders waiting for you to check the slip by eye. Typing "ok" (or "ok 001")
+// in the private group finishes them. Kept in memory, so a restart or
+// redeploy clears the list.
+const pendingManualOrders = new Map(); // orderNo -> { ctx, createdAt }
+// What the customer's app asks while it waits: token -> { status: "waiting" | "placed", createdAt }.
+// The token is random, so only the customer who placed the order can look it up.
+const manualOrderStatus = new Map();
+
+app.get("/api/order-status", (req, res) => {
+  const entry = manualOrderStatus.get(String(req.query.token || ""));
+  res.set("Cache-Control", "no-store");
+  res.json({ status: entry ? entry.status : "unknown" });
+});
+
+// One order line per row, so it can be read at a glance in the kitchen.
+function itemRows(lines) {
+  return lines.map((l) => `${l.qty}x ${l.name}  ฿${l.price * l.qty}`).join("\n");
+}
+
+// Everything that happens once an order is really accepted: stock, the kitchen
+// ticket in the private group, the Orders sheet, loyalty points, reminders and
+// the customer's LINE confirmation. Used both for slips the bot verified and
+// for slips you approved with "ok".
+async function completeLiffOrder(ctx) {
+  const { order, lines, foodTotal, deliveryFeeAmount, total, totalDiscount, promoLabelsUsed,
+    redeemApplied, redeemTier, scheduledForMoment, orderNo, slipUrl, slip, manual } = ctx;
+
   for (const line of lines) {
     if (!stockCount.has(line.itemId)) continue;
     const remaining = stockCount.get(line.itemId) - line.qty;
@@ -3068,40 +3114,42 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     if (remaining <= 0) soldOut.add(line.itemId);
   }
 
-  const slipUrl = await uploadSlipPhoto(req.file.buffer, req.file.mimetype);
-
   const fullAddress = order.location
     ? await describeLocation(order.location.lat, order.location.lng)
     : order.addressText || "(not provided)";
   const addressWithNote = order.addressNote ? `${fullAddress} -- ${order.addressNote}` : fullAddress;
   const isScheduled = order.timing === "SCHEDULED" && scheduledForMoment;
   const timingLine = isScheduled
-    ? `PRE-ORDER -- scheduled for ${scheduledForMoment.format("DD/MM/YYYY")} at ${scheduledForMoment.format("HH:mm")}`
+    ? `PRE-ORDER for ${scheduledForMoment.format("DD/MM/YYYY")} at ${scheduledForMoment.format("HH:mm")}`
     : "Right away";
   const deliveryLine =
     deliveryFeeAmount === 0 && !order.needsManualFee
-      ? `Delivery: FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
-      : `Delivery: ฿${deliveryFeeAmount}${
+      ? `FREE (${(order.distanceKm || 0).toFixed(1)}km, within 2km zone)`
+      : `฿${deliveryFeeAmount}${
           order.distanceKm
             ? ` (${order.distanceKm.toFixed(1)}km${order.distanceKm <= 2 ? `, under ฿${FREE_DELIVERY_MIN} order` : ""})`
             : ""
         }`;
   const orderText = lines.map((l) => `${l.qty}x ${l.name} — ฿${l.price * l.qty}`).join("\n");
-  const discountLine = totalDiscount > 0 ? `Discount applied: -฿${totalDiscount}${promoLabelsUsed.length ? ` (${promoLabelsUsed.join(", ")})` : ""}\n` : "";
+  const mapsLink = mapsLinkFor(order.location, order.addressText);
 
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (target) {
     try {
-      const messages = [
-        {
-          type: "text",
-          text:
-            `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"} #${orderNo} (via app)\n\n${orderText}\n\nFood total: ฿${foodTotal}\n${discountLine}Timing: ${timingLine}\n${deliveryLine}\nTotal paid: ฿${total}\n\n` +
-            `Name: ${order.name}\nAddress: ${addressWithNote}\nPhone: ${order.phone}\n\n` +
-            `Paid via: ${order.paymentMethod}\nSlip amount: ฿${slip.amountInSlip}\nSlip ref: ${slip.transRef}`,
-        },
-      ];
-      if (slipUrl) {
+      const head = manual
+        ? `✅ ORDER PLACED #${orderNo} for ${order.name}\n(you checked the slip, customer told)`
+        : `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"} #${orderNo} for ${order.name}`;
+      const text = [
+        head,
+        `ITEMS\n${itemRows(lines)}`,
+        `TOTAL ฿${total}\nFood ฿${foodTotal}\n${totalDiscount > 0 ? `Discount -฿${totalDiscount}${promoLabelsUsed.length ? ` (${promoLabelsUsed.join(", ")})` : ""}\n` : ""}Delivery ${deliveryLine}\nTiming: ${timingLine}`,
+        `DELIVER TO\n${order.name}\n${order.phone}\n${/^https?:/.test(fullAddress) ? (order.addressText || "(pin only)") : fullAddress}\nRider note: ${order.addressNote || "none"}${mapsLink ? `\nMap: ${mapsLink}` : ""}`,
+        manual
+          ? `PAYMENT\nPaid via: ${order.paymentMethod}\nSlip checked by you`
+          : `PAYMENT\nPaid via: ${order.paymentMethod}\nSlip ฿${slip.amountInSlip}\nRef: ${slip.transRef}`,
+      ].join("\n\n");
+      const messages = [{ type: "text", text }];
+      if (slipUrl && !manual) {
         messages.push({ type: "image", originalContentUrl: slipUrl, previewImageUrl: slipUrl });
       }
       await client.pushMessage(target, messages);
@@ -3169,7 +3217,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         ? `Payment received! Your order is confirmed for delivery on ${prettyDate} at ${prettyTime}. Thank you for ordering with Merlin's Dish.`
         : `Payment received! The kitchen is currently closed, but your order is confirmed. We'll process it and have your meal delivered on ${prettyDate} at ${prettyTime}.`;
     } else {
-      confirmationText = `All set! Your order is confirmed and on its way to the kitchen. Thank you for ordering from Merlin's Dish! 🍲`;
+      confirmationText = `Order placed! Your payment is confirmed and your order is on its way to the kitchen. Thank you for ordering from Merlin's Dish! 🍲`;
     }
     try {
       await client.pushMessage(order.lineUserId, { type: "text", text: confirmationText });
@@ -3181,20 +3229,71 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   if (order.feeRequestId) {
     pendingFeeRequests.delete(order.feeRequestId);
   }
+}
 
-  res.json({
-    success: true,
-    total,
-    needsManualFee: order.needsManualFee,
-    distanceKm: order.distanceKm,
-    slipRef: slip.transRef,
+// "ok" or "ok 001" typed in the private group after you've checked a slip.
+async function handleManualOk(replyToken, wantedNo) {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [no, e] of pendingManualOrders.entries()) {
+    if (e.createdAt < cutoff) pendingManualOrders.delete(no);
+  }
+  for (const [t, e] of manualOrderStatus.entries()) {
+    if (e.createdAt < cutoff) manualOrderStatus.delete(t);
+  }
+  const waiting = [...pendingManualOrders.entries()];
+
+  if (wantedNo) {
+    const key = wantedNo.padStart(3, "0");
+    const entry = pendingManualOrders.get(key);
+    if (!entry) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `I have no order #${key} waiting for a slip check.\nIt may already be placed, or the bot restarted since it came in.${
+          waiting.length ? `\n\nWaiting now:\n${waiting.map(([n, e]) => `#${n} ${e.ctx.order.name} ฿${e.ctx.total}`).join("\n")}` : ""
+        }`,
+      });
+      return;
+    }
+    return confirmManualOrder(replyToken, key, entry);
+  }
+
+  if (waiting.length === 0) return; // plain "ok" with nothing waiting is just chat
+  if (waiting.length > 1) {
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Which order?\nReply "ok" with the number, for example "ok ${waiting[0][0]}".\n\nWaiting now:\n${waiting.map(([n, e]) => `#${n} ${e.ctx.order.name} ฿${e.ctx.total}`).join("\n")}`,
+    });
+    return;
+  }
+  return confirmManualOrder(replyToken, waiting[0][0], waiting[0][1]);
+}
+
+async function confirmManualOrder(replyToken, orderNo, entry) {
+  pendingManualOrders.delete(orderNo); // delete first so a double "ok" can't place it twice
+  try {
+    await completeLiffOrder(entry.ctx);
+  } catch (err) {
+    console.error("Failed to finish manually approved order:", err);
+    pendingManualOrders.set(orderNo, entry);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `⚠️ Something went wrong placing #${orderNo} for ${entry.ctx.order.name}.\nIt is still waiting. Reply "ok ${orderNo}" to try again.`,
+    });
+    return;
+  }
+  const st = manualOrderStatus.get(entry.ctx.statusToken);
+  if (st) st.status = "placed";
+  // The ticket itself is pushed by completeLiffOrder; this is the short answer to your "ok".
+  await client.replyMessage(replyToken, {
+    type: "text",
+    text: `✅ Order #${orderNo} placed for ${entry.ctx.order.name}.\nTheir confirmation has been sent.`,
   });
-});
+}
 
-async function forwardLiffOrderForManualReview(order, lines, total, reason, orderNo, slipFile, fees) {
+async function forwardLiffOrderForManualReview(ctx, reason, orderNo, slipFile) {
+  const { order, lines, total, foodTotal, deliveryFeeAmount } = ctx;
   const target = process.env.LINE_INTERNAL_TARGET_ID;
   if (!target) return;
-  const body = lines.map((l) => `${l.qty}x ${l.name}`).join(", ");
 
   // Save the slip photo so you can see it right here in the group and
   // check the payment yourself, without opening Cloudinary.
@@ -3207,6 +3306,15 @@ async function forwardLiffOrderForManualReview(order, lines, total, reason, orde
     }
   }
 
+  // Hold the order until you type "ok". The customer's app polls the token
+  // below and flips to "Order placed" as soon as you do.
+  const statusToken = require("crypto").randomBytes(16).toString("hex");
+  manualOrderStatus.set(statusToken, { status: "waiting", createdAt: Date.now() });
+  pendingManualOrders.set(orderNo, {
+    createdAt: Date.now(),
+    ctx: { ...ctx, orderNo, slipUrl, slip: { amountInSlip: total, transRef: `manual-${orderNo}` }, manual: true, statusToken },
+  });
+
   const mapsLink = mapsLinkFor(order.location, order.addressText);
 
   // Distance from the Asok shop, worked out here from the pin so it does
@@ -3217,32 +3325,21 @@ async function forwardLiffOrderForManualReview(order, lines, total, reason, orde
   if (order.location && typeof order.location.lat === "number" && !isNaN(shopLat) && !isNaN(shopLng)) {
     km = distanceKm(shopLat, shopLng, order.location.lat, order.location.lng);
   }
-  const distanceLine = km != null ? `Distance from Asok: ${km.toFixed(1)}km\n` : `Distance from Asok: unknown (typed address, no pin)\n`;
-  const feeLine = fees
-    ? `Food ฿${fees.foodTotal} + delivery ฿${fees.deliveryFeeAmount} = ฿${total}\n`
-    : "";
-  const addressLine = order.addressText && order.addressText.trim() ? `Address: ${order.addressText.trim()}\n` : "";
-  const noteLine = order.addressNote ? `Rider note: ${order.addressNote}\n` : "";
+  const distanceLine = km != null ? `${km.toFixed(1)}km from Asok` : `Distance unknown (typed address, no pin)`;
+  const addressLine = order.addressText && order.addressText.trim() ? order.addressText.trim() : "(pin only)";
 
-  const messages = [
-    {
-      type: "text",
-      text:
-        `⚠️ NEEDS MANUAL SLIP CHECK #${orderNo || "---"} (via app)\n` +
-        `Customer: ${order.name || "unknown"} (${order.phone || "no phone"})\n` +
-        `Order: ${body}\n` +
-        `Total to be paid: ฿${total}\n` +
-        feeLine +
-        distanceLine +
-        `${mapsLink ? `Location: ${mapsLink}\n` : ""}` +
-        addressLine +
-        noteLine +
-        `Reason: ${reason}\n` +
-        (slipUrl
-          ? `Their slip is below. Check the amount shows ฿${total}, then confirm with them.`
-          : `The slip photo could not be saved, so please ask them to send it to you directly.`),
-    },
-  ];
+  const text = [
+    `⚠️ CHECK SLIP #${orderNo} for ${order.name || "unknown"}\n${order.phone || "no phone"}`,
+    `ITEMS\n${itemRows(lines)}`,
+    `SLIP SHOULD SHOW ฿${total}\nFood ฿${foodTotal}\nDelivery ฿${deliveryFeeAmount}`,
+    `DELIVER TO\n${addressLine}\nRider note: ${order.addressNote || "none"}\n${distanceLine}${mapsLink ? `\nMap: ${mapsLink}` : ""}`,
+    `WHY: ${reason}`,
+    slipUrl
+      ? `Slip is below. If it shows ฿${total}, reply:\nok ${orderNo}`
+      : `The slip photo could not be saved. Ask the customer to send it to you, then reply:\nok ${orderNo}`,
+  ].join("\n\n");
+
+  const messages = [{ type: "text", text }];
   if (slipUrl) {
     messages.push({ type: "image", originalContentUrl: slipUrl, previewImageUrl: slipUrl });
   }
@@ -3251,6 +3348,7 @@ async function forwardLiffOrderForManualReview(order, lines, total, reason, orde
   } catch (err) {
     console.error("Failed to push LIFF manual-review alert:", err.message);
   }
+  return { statusToken };
 }
 
 // ---------- webhook ----------
@@ -3377,6 +3475,13 @@ async function handleEvent(event) {
         });
         return;
       }
+    }
+
+    // "ok" / "ok 001" / "001 ok" in the private group places an order whose
+    // slip you checked by eye (see forwardLiffOrderForManualReview).
+    if (event.source.type === "group" && event.source.groupId === process.env.LINE_INTERNAL_TARGET_ID) {
+      const okMatch = /^(?:(?:ok|okay|โอเค)\s*#?(\d{1,4})?|#?(\d{1,4})\s*(?:ok|okay|โอเค))$/i.exec(text.trim());
+      if (okMatch) return handleManualOk(event.replyToken, okMatch[1] || okMatch[2] || null);
     }
 
     // A bare number typed in your private group is treated as the fee

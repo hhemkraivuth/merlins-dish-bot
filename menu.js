@@ -48,7 +48,7 @@ const MENU = [
 
   // -- Pasta (bundled dishes, pasta choice is mandatory and mostly free,
   //    Tubetti/Radiatori add a small surcharge -- see PASTA_OPTIONS below) --
-  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766603/ragu.png", requiresPasta: true, description: "Rich 6-hour slow-cooked AU beef pulled into a seamless, velvety ragu, topped with sharp Pecorino cheese. // Recommend pairing with Radiatori." },
+  { id: "ragu", name: "Noir Ragu + Pasta", price: 225, category: "pasta", badge: "Most ordered", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766603/ragu.png", requiresPasta: true, description: "Rich 6-hour slow-cooked AU beef pulled into a seamless, velvety ragu, topped with sharp Pecorino cheese. // Recommend pairing with Radiatori." },
   { id: "bolognese", name: "Polished Pork Bolognese + Pasta", price: 195, category: "pasta", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766599/bolognese.png", requiresPasta: true, description: "A deeply layered, slow-simmered homemade pork Bolognese infused with aromatic herbs for a smooth Italian finish. // Recommend pairing with Rigatoni." },
 
   // -- Soup --

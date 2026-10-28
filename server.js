@@ -56,7 +56,7 @@ const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
-const { logOrder, logMenuTap, getTodaysMaxOrderNo } = require("./sheetLogger");
+const { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts } = require("./sheetLogger");
 const {
   getCustomer,
   getCustomerByLineId,
@@ -2553,7 +2553,28 @@ async function handleFollow(userId, replyToken) {
 // chat-based bot above -- this is genuinely the same server, just a
 // second way in for customers.
 
+// "Most ordered" tag: worked out from real direct orders in the Orders tab
+// (last 60 days), refreshed in the background every 10 minutes. Only mains,
+// pastas and soups can carry it. The top dish gets the tag; a tie for first
+// place shares it, but only once that top count is at least 2.
+let mostOrderedIds = new Set();
+let mostOrderedAt = 0;
+const MOST_ORDERED_TTL_MS = 10 * 60 * 1000;
+const TAGGABLE_CATEGORIES = new Set(["mains", "pasta", "soup"]);
+async function refreshMostOrdered() {
+  mostOrderedAt = Date.now(); // set first so slow reads don't pile up
+  const { counts, ok } = await getDishOrderCounts(MENU);
+  if (!ok) return;
+  const entries = MENU.filter((d) => TAGGABLE_CATEGORIES.has(d.category) && counts[d.id] > 0)
+    .map((d) => [d.id, counts[d.id]]);
+  if (!entries.length) { mostOrderedIds = new Set(); return; }
+  const top = Math.max(...entries.map((e) => e[1]));
+  const leaders = entries.filter((e) => e[1] === top).map((e) => e[0]);
+  mostOrderedIds = leaders.length === 1 || top >= 2 ? new Set(leaders) : new Set();
+}
+
 app.get("/api/menu", (req, res) => {
+  if (Date.now() - mostOrderedAt > MOST_ORDERED_TTL_MS) refreshMostOrdered().catch(() => {});
   const items = MENU.map((d) => {
     const promo = activePromoForItem(d.id);
     // Which of this dish's own size/pasta choices are sold out
@@ -2573,7 +2594,7 @@ app.get("/api/menu", (req, res) => {
       category: d.category,
       image: d.image,
       description: d.description || null,
-      badge: d.badge || null,
+      badge: d.badge || (mostOrderedIds.has(d.id) ? "Most ordered" : null),
       requiresPasta: !!d.requiresPasta,
       requiresSize: !!d.requiresSize,
       available: !isUnavailable(d.id),

@@ -532,7 +532,7 @@ function openOptionSheet(dish) {
       <div class="sheet-options">
         ${options.map((o) => {
           const soldOut = soldOutIds.includes(o.id);
-          const sur = o.mandatorySurcharge ? `+฿${o.mandatorySurcharge}` : "Included";
+          const sur = o.mandatorySurcharge ? `+฿${o.mandatorySurcharge}` : "฿0";
           return `<button type="button" class="sheet-option" data-id="${o.id}" ${soldOut ? "disabled" : ""}>
             <span class="radio"></span>
             <span class="opt-name">${o.name}${soldOut ? " (sold out)" : ""}</span>
@@ -1404,11 +1404,24 @@ async function submitOrder() {
       addressText: manualAddress || (SAVED_PROFILE && SAVED_PROFILE.addressText) || "",
       addressNote: order.addressNote || "",
     };
-    document.getElementById("confirm-message").textContent =
+    const placedMessage =
       timing === "SCHEDULED" && scheduleDate && scheduleTime
         ? `Payment received! Your order is confirmed for delivery on ${formatDateDDMMYYYY(scheduleDate)} at ${scheduleTime}.`
         : "All set! The food will be with you shortly. You can close this window.";
-    showScreen("confirm-screen");
+    const confirmTitle = document.getElementById("confirm-title");
+    const confirmMessage = document.getElementById("confirm-message");
+    if (data.manualReview) {
+      // The bank slip is being checked by hand. Say so, then flip to "Order
+      // placed!" by itself within a few seconds of the kitchen approving it.
+      confirmTitle.textContent = "Order received";
+      confirmMessage.textContent = "We're checking your payment now. This page will update by itself.";
+      showScreen("confirm-screen");
+      watchManualOrder(data.statusToken, placedMessage);
+    } else {
+      confirmTitle.textContent = "Order placed!";
+      confirmMessage.textContent = placedMessage;
+      showScreen("confirm-screen");
+    }
   } catch (err) {
     console.error(err);
     status.textContent = "Couldn't reach the kitchen. Check your connection and try again.";
@@ -1416,7 +1429,37 @@ async function submitOrder() {
   }
 }
 
+// Asks the server every 3 seconds whether the kitchen has approved a slip that
+// had to be checked by hand. Stops after 15 minutes (the customer still gets
+// a LINE message when it is approved) or when they start a new order.
+let manualWatchId = 0;
+async function watchManualOrder(token, placedMessage) {
+  const myId = ++manualWatchId;
+  if (!token) return;
+  const stopAt = Date.now() + 15 * 60 * 1000;
+  while (myId === manualWatchId && Date.now() < stopAt) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (myId !== manualWatchId) return;
+    try {
+      const res = await fetch(`/api/order-status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (data.status === "placed") {
+        document.getElementById("confirm-title").textContent = "Order placed!";
+        document.getElementById("confirm-message").textContent = placedMessage;
+        return;
+      }
+    } catch (err) {
+      /* network blip: just try again on the next round */
+    }
+  }
+  if (myId === manualWatchId) {
+    document.getElementById("confirm-message").textContent =
+      "This is taking a little longer than usual. We'll message you on LINE the moment your order is placed.";
+  }
+}
+
 function resetOrder() {
+  manualWatchId++; // stop any "waiting for approval" check from the last order
   cart = {};
   timing = "ASAP";
   scheduleDate = null;

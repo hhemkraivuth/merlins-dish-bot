@@ -74,6 +74,76 @@ function normalisePhone(raw) {
 }
 
 // ---------- Customers tab ----------
+// Columns are found by their header text in row 1, so the tab can keep any
+// extra columns (old Free Pasta columns, notes, etc.) in any order. If one
+// of the four saved-address headers is missing, it is added automatically
+// to the first free column on the right.
+
+const CORE_HEADERS = {
+  phone: ["phone", "phone number", "mobile"],
+  name: ["customer name", "name"],
+  count: ["order count", "orders"],
+  date: ["last order date"],
+  lineId: ["line user id", "line id", "line userid"],
+};
+const CORE_FALLBACK = { phone: 0, name: 1, count: 2, date: 3, lineId: 4 };
+const NEW_HEADERS = {
+  lastLat: "Last lat",
+  lastLng: "Last lng",
+  lastAddress: "Last address",
+  lastNote: "Last rider note",
+};
+
+let layoutCache = null;
+let layoutCacheAt = 0;
+const LAYOUT_TTL_MS = 5 * 60 * 1000;
+
+function colLetter(i) {
+  let s = "";
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+async function getLayout() {
+  const client = getClient();
+  if (!client) return null;
+  const now = Date.now();
+  if (layoutCache && now - layoutCacheAt < LAYOUT_TTL_MS) return layoutCache;
+
+  const res = await client.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: "Customers!1:1",
+  });
+  const headers = ((res.data.values || [[]])[0] || []).map((h) => String(h || "").trim().toLowerCase());
+  const layout = {};
+  for (const [key, names] of Object.entries(CORE_HEADERS)) {
+    const idx = headers.findIndex((h) => names.includes(h));
+    layout[key] = idx !== -1 ? idx : CORE_FALLBACK[key];
+  }
+  let next = Math.max(headers.length, ...Object.values(layout).map((i) => i + 1));
+  const toWrite = [];
+  for (const [key, title] of Object.entries(NEW_HEADERS)) {
+    const idx = headers.findIndex((h) => h === title.toLowerCase());
+    if (idx !== -1) {
+      layout[key] = idx;
+    } else {
+      layout[key] = next;
+      toWrite.push({ range: `Customers!${colLetter(next)}1`, values: [[title]] });
+      next++;
+    }
+  }
+  if (toWrite.length) {
+    await client.spreadsheets.values.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      requestBody: { valueInputOption: "RAW", data: toWrite },
+    });
+    console.log("Customers tab: added headers", toWrite.map((w) => w.values[0][0]).join(", "));
+  }
+  layout.width = next;
+  layoutCache = layout;
+  layoutCacheAt = now;
+  return layout;
+}
 
 let customerCache = null;
 let customerCacheAt = 0;
@@ -87,7 +157,7 @@ async function loadAllCustomers() {
 
   const res = await client.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: "Customers!A2:I",
+    range: "Customers!A2:Z",
   });
   customerCache = res.data.values || [];
   customerCacheAt = now;
@@ -96,6 +166,10 @@ async function loadAllCustomers() {
 
 function invalidateCustomerCache() {
   customerCache = null;
+}
+
+function numOrNull(v) {
+  return v !== undefined && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : null;
 }
 
 // Looks up a customer by phone. Returns null if sheets isn't configured.
@@ -108,24 +182,25 @@ async function getCustomer(rawPhone) {
   if (!client) return null;
 
   try {
+    const L = await getLayout();
     const rows = await loadAllCustomers();
-    const rowIndex = rows.findIndex((r) => normalisePhone(r[0]) === phone);
+    const rowIndex = rows.findIndex((r) => normalisePhone(r[L.phone]) === phone);
     if (rowIndex === -1) {
       return { phone, name: "", orderCount: 0, found: false, rowIndex: -1, ...tierEligibility(0) };
     }
     const row = rows[rowIndex];
-    const orderCount = Number(row[2]) || 0;
+    const orderCount = Number(row[L.count]) || 0;
     return {
       phone,
-      name: row[1] || "",
-      lineUserId: row[4] || "",
-      lastLat: row[5] !== undefined && row[5] !== "" ? Number(row[5]) : null,
-      lastLng: row[6] !== undefined && row[6] !== "" ? Number(row[6]) : null,
-      lastAddress: row[7] || "",
-      lastNote: row[8] || "",
+      name: row[L.name] || "",
+      lineUserId: row[L.lineId] || "",
+      lastLat: numOrNull(row[L.lastLat]),
+      lastLng: numOrNull(row[L.lastLng]),
+      lastAddress: row[L.lastAddress] || "",
+      lastNote: row[L.lastNote] || "",
       orderCount,
       found: true,
-      rowIndex, // 0-based within the A2:E range -- sheet row is rowIndex + 2
+      rowIndex, // 0-based within the A2:Z range -- sheet row is rowIndex + 2
       ...tierEligibility(orderCount),
     };
   } catch (err) {
@@ -142,21 +217,21 @@ async function getCustomerByLineId(lineUserId) {
   const client = getClient();
   if (!client) return null;
   try {
+    const L = await getLayout();
     const rows = await loadAllCustomers();
     let idx = -1;
     for (let i = rows.length - 1; i >= 0; i--) {
-      if ((rows[i][4] || "") === lineUserId) { idx = i; break; }
+      if ((rows[i][L.lineId] || "") === lineUserId) { idx = i; break; }
     }
     if (idx === -1) return null;
     const row = rows[idx];
-    const num = (v) => (v !== undefined && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : null);
     return {
-      phone: normalisePhone(row[0]),
-      name: row[1] || "",
-      lastLat: num(row[5]),
-      lastLng: num(row[6]),
-      lastAddress: row[7] || "",
-      lastNote: row[8] || "",
+      phone: normalisePhone(row[L.phone]),
+      name: row[L.name] || "",
+      lastLat: numOrNull(row[L.lastLat]),
+      lastLng: numOrNull(row[L.lastLng]),
+      lastAddress: row[L.lastAddress] || "",
+      lastNote: row[L.lastNote] || "",
     };
   } catch (err) {
     console.error("Customer lookup by LINE id failed:", err.message);
@@ -180,12 +255,14 @@ function tierEligibility(orderCount) {
 // Returns { orderCount, resetHappened } where orderCount is the NEW
 // count after this order (post-reset if a redemption happened), or
 // null if sheets isn't configured / the write failed.
+// Only the cells it owns are written, so any other columns on the tab are left alone.
 async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, lastLat, lastLng, lastAddress, lastNote }) {
   const phone = normalisePhone(rawPhone);
   const client = getClient();
   if (!client || !phone) return null;
 
   try {
+    const L = await getLayout();
     const existing = await getCustomer(phone);
     const now = new Date().toLocaleDateString("en-GB");
 
@@ -195,13 +272,27 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, la
       newOrderCount = 0; // reset the ladder on any redemption
     }
 
+    const e = existing && existing.found ? existing : {};
+    const values = {
+      name: name || e.name || "",
+      count: newOrderCount,
+      date: now,
+      lineId: lineUserId || e.lineUserId || "",
+      lastLat: lastLat ?? e.lastLat ?? "",
+      lastLng: lastLng ?? e.lastLng ?? "",
+      lastAddress: lastAddress || e.lastAddress || "",
+      lastNote: lastNote || e.lastNote || "",
+    };
+
     if (!existing || !existing.found) {
       // Leading apostrophe tells Google Sheets to keep this as text, so the
       // leading 0 is not stripped (USER_ENTERED would turn 081... into 81...).
-      const row = ["'" + phone, name || "", newOrderCount, now, lineUserId || "", lastLat ?? "", lastLng ?? "", lastAddress || "", lastNote || ""];
+      const row = new Array(L.width).fill("");
+      row[L.phone] = "'" + phone;
+      for (const [k, v] of Object.entries(values)) row[L[k]] = v;
       await client.spreadsheets.values.append({
         spreadsheetId: process.env.GOOGLE_SHEET_ID,
-        range: "Customers!A:I",
+        range: "Customers!A:A",
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [row] },
       });
@@ -210,22 +301,14 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, la
     }
 
     const sheetRow = existing.rowIndex + 2; // +2: 1-based, plus header row
-    await client.spreadsheets.values.update({
+    await client.spreadsheets.values.batchUpdate({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: `Customers!A${sheetRow}:I${sheetRow}`,
-      valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[
-          "'" + phone,
-          name || existing.name,
-          newOrderCount,
-          now,
-          lineUserId || existing.lineUserId || "",
-          lastLat ?? existing.lastLat ?? "",
-          lastLng ?? existing.lastLng ?? "",
-          lastAddress || existing.lastAddress || "",
-          lastNote || existing.lastNote || "",
-        ]],
+        valueInputOption: "USER_ENTERED",
+        data: Object.entries(values).map(([k, v]) => ({
+          range: `Customers!${colLetter(L[k])}${sheetRow}`,
+          values: [[v]],
+        })),
       },
     });
     invalidateCustomerCache();
@@ -235,6 +318,7 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, la
     return null;
   }
 }
+
 
 // ---------- Reward Config tab ----------
 

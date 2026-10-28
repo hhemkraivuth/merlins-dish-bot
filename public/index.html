@@ -12,6 +12,8 @@
 </head>
 <body>
 
+<div id="welcome-pop" class="welcome-pop" aria-live="polite"><strong id="welcome-pop-title"></strong><span id="welcome-pop-sub"></span></div>
+
 <div id="loading-screen" class="screen active">
   <div class="loading-wrap">
     <div class="loading-badge">✨</div>
@@ -55,6 +57,7 @@
 <!-- ===================== MENU + CART SCREEN ===================== -->
 <div id="menu-screen" class="screen">
   <header class="topbar">
+    <p id="greeting" class="greeting hidden"></p>
     <div class="brand">
       <span class="brand-mark">🥘</span>
       <div>
@@ -114,22 +117,10 @@
   <section class="field-group">
     <label for="cart-phone-input">Contact number</label>
     <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
+    <p class="hint">You're one of our regulars, so your name, number and last address are saved for you. Next order takes seconds.</p>
   </section>
 
   <p id="cart-contact-hint" class="hint hidden" style="color:#b3261e;"></p>
-
-  <button id="check-reward-btn" type="button" class="btn btn-secondary btn-block" disabled>Check your reward</button>
-
-  <section id="reward-banner" class="reward-banner hidden">
-    <p id="reward-progress-text" class="reward-progress-text"></p>
-    <label id="reward-toggle-row" class="reward-toggle-row hidden">
-      <input type="checkbox" id="redeem-reward-checkbox" />
-      <span id="reward-toggle-label"></span>
-    </label>
-    <select id="redeem-dish-select" class="text-input hidden"></select>
-    <select id="redeem-pasta-select" class="text-input hidden"></select>
-    <p id="redeem-surcharge-note" class="hint hidden"></p>
-  </section>
 
   <div class="bottom-actions">
     <p id="cart-delivery-hint" class="hint hidden"></p>
@@ -139,6 +130,27 @@
     </div>
     <button id="checkout-btn" class="btn btn-primary btn-block" disabled>Checkout</button>
   </div>
+</div>
+
+<!-- ===================== REWARD SCREEN (only shown when a reward is available) ===================== -->
+<div id="reward-screen" class="screen">
+  <header class="subbar">
+    <button class="back-btn" data-back="cart-screen">←</button>
+    <h2>Your reward</h2>
+  </header>
+  <main class="form-area">
+    <section id="reward-banner" class="reward-banner">
+      <p id="reward-progress-text" class="reward-progress-text"></p>
+      <label id="reward-toggle-row" class="reward-toggle-row hidden">
+        <input type="checkbox" id="redeem-reward-checkbox" />
+        <span id="reward-toggle-label"></span>
+      </label>
+      <select id="redeem-dish-select" class="text-input hidden"></select>
+      <select id="redeem-pasta-select" class="text-input hidden"></select>
+      <p id="redeem-surcharge-note" class="hint hidden"></p>
+    </section>
+    <button id="reward-continue-btn" type="button" class="btn btn-primary btn-block">Continue</button>
+  </main>
 </div>
 
 <!-- ===================== DELIVERY DETAILS SCREEN ===================== -->
@@ -170,8 +182,12 @@
 
     <section class="field-group">
       <label>Delivery location</label>
-      <div id="free-delivery-note" class="free-delivery-note"></div>
-      <p class="hint">Touch and hold the pin, then drag it to where you want the delivery -- it doesn't have to be where you are right now.</p>
+      <div id="saved-address-hint" class="saved-address-hint hidden">
+        <span class="sa-title">📍 Delivering to your last address</span>
+        <span class="sa-text" id="saved-address-text"></span>
+        <span class="sa-sub">Not here? Drag the pin or tap "Use my current location".</span>
+      </div>
+      <p id="drag-hint" class="hint">Touch and hold the pin, then drag it to where you want the delivery -- it doesn't have to be where you are right now.</p>
       <div id="map" class="map-container"></div>
       <button type="button" id="use-my-location-btn" class="btn btn-secondary btn-block">📍 Use my current location</button>
       <div id="location-result" class="location-result hidden"></div>
@@ -186,6 +202,11 @@
       <input type="text" id="address-note" class="text-input" placeholder="Unit number or a place to deliver, e.g. lobby" required />
     </section>
 
+    <section class="rate-strip">
+      <p class="rate-title">Delivery rates from Asok branch</p>
+      <div id="free-delivery-note" class="rate-grid"></div>
+      <p id="rate-foot" class="rate-foot"></p>
+    </section>
     <button id="to-review-btn" class="btn btn-primary btn-block">Continue</button>
   </main>
 </div>

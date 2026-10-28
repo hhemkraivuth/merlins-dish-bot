@@ -87,7 +87,7 @@ async function loadAllCustomers() {
 
   const res = await client.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: "Customers!A2:E",
+    range: "Customers!A2:I",
   });
   customerCache = res.data.values || [];
   customerCacheAt = now;
@@ -118,6 +118,11 @@ async function getCustomer(rawPhone) {
     return {
       phone,
       name: row[1] || "",
+      lineUserId: row[4] || "",
+      lastLat: row[5] !== undefined && row[5] !== "" ? Number(row[5]) : null,
+      lastLng: row[6] !== undefined && row[6] !== "" ? Number(row[6]) : null,
+      lastAddress: row[7] || "",
+      lastNote: row[8] || "",
       orderCount,
       found: true,
       rowIndex, // 0-based within the A2:E range -- sheet row is rowIndex + 2
@@ -125,6 +130,36 @@ async function getCustomer(rawPhone) {
     };
   } catch (err) {
     console.error("Customer lookup failed:", err.message);
+    return null;
+  }
+}
+
+// Finds the customer saved against a LINE user id (their most recent row if
+// the same LINE account has used more than one phone number). Returns null
+// when nothing is saved yet, or when Sheets isn't configured.
+async function getCustomerByLineId(lineUserId) {
+  if (!lineUserId) return null;
+  const client = getClient();
+  if (!client) return null;
+  try {
+    const rows = await loadAllCustomers();
+    let idx = -1;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if ((rows[i][4] || "") === lineUserId) { idx = i; break; }
+    }
+    if (idx === -1) return null;
+    const row = rows[idx];
+    const num = (v) => (v !== undefined && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : null);
+    return {
+      phone: normalisePhone(row[0]),
+      name: row[1] || "",
+      lastLat: num(row[5]),
+      lastLng: num(row[6]),
+      lastAddress: row[7] || "",
+      lastNote: row[8] || "",
+    };
+  } catch (err) {
+    console.error("Customer lookup by LINE id failed:", err.message);
     return null;
   }
 }
@@ -145,7 +180,7 @@ function tierEligibility(orderCount) {
 // Returns { orderCount, resetHappened } where orderCount is the NEW
 // count after this order (post-reset if a redemption happened), or
 // null if sheets isn't configured / the write failed.
-async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) {
+async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, lastLat, lastLng, lastAddress, lastNote }) {
   const phone = normalisePhone(rawPhone);
   const client = getClient();
   if (!client || !phone) return null;
@@ -161,10 +196,12 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) 
     }
 
     if (!existing || !existing.found) {
-      const row = [phone, name || "", newOrderCount, now, lineUserId || ""];
+      // Leading apostrophe tells Google Sheets to keep this as text, so the
+      // leading 0 is not stripped (USER_ENTERED would turn 081... into 81...).
+      const row = ["'" + phone, name || "", newOrderCount, now, lineUserId || "", lastLat ?? "", lastLng ?? "", lastAddress || "", lastNote || ""];
       await client.spreadsheets.values.append({
         spreadsheetId: process.env.GOOGLE_SHEET_ID,
-        range: "Customers!A:E",
+        range: "Customers!A:I",
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [row] },
       });
@@ -175,9 +212,21 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier }) 
     const sheetRow = existing.rowIndex + 2; // +2: 1-based, plus header row
     await client.spreadsheets.values.update({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: `Customers!A${sheetRow}:E${sheetRow}`,
+      range: `Customers!A${sheetRow}:I${sheetRow}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[phone, name || existing.name, newOrderCount, now, lineUserId || ""]] },
+      requestBody: {
+        values: [[
+          "'" + phone,
+          name || existing.name,
+          newOrderCount,
+          now,
+          lineUserId || existing.lineUserId || "",
+          lastLat ?? existing.lastLat ?? "",
+          lastLng ?? existing.lastLng ?? "",
+          lastAddress || existing.lastAddress || "",
+          lastNote || existing.lastNote || "",
+        ]],
+      },
     });
     invalidateCustomerCache();
     return { orderCount: newOrderCount, resetHappened: newOrderCount === 0 && priorCount !== 0 };
@@ -354,6 +403,7 @@ function fuzzyMatchMenuItem(spoken, menu) {
 
 module.exports = {
   getCustomer,
+  getCustomerByLineId,
   recordOrder,
   normalisePhone,
   getRewardConfig,

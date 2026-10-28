@@ -2755,6 +2755,20 @@ app.get("/api/delivery-fee/:requestId", (req, res) => {
 // Never trusted for pricing -- only tells the browser what banner/copy to
 // show. Eligibility is re-checked server-side again in /api/place-order
 // before any discount is actually applied.
+//
+// Returning customers who aren't inside LINE (for example Instagram visitors
+// opening the short link) are recognised by phone number. Their saved address,
+// pin and rider note are only sent back when the first name typed on the cart
+// screen also matches the name on file, so a stranger who guesses a number
+// can't read someone else's address.
+function sameFirstName(a, b) {
+  const first = (s) => String(s || "").trim().toLowerCase().split(/\s+/)[0] || "";
+  const x = first(a);
+  const y = first(b);
+  if (!x || !y) return false;
+  return x === y || x.startsWith(y) || y.startsWith(x);
+}
+
 app.get("/api/customer-lookup", async (req, res) => {
   const phone = normalisePhone(req.query.phone || "");
   const rewardConfig = await getRewardConfig(MENU);
@@ -2762,6 +2776,21 @@ app.get("/api/customer-lookup", async (req, res) => {
   if (!customer) {
     return res.json({ found: false, orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
   }
+  const hasSavedPlace =
+    (customer.lastLat != null && customer.lastLng != null) || !!customer.lastAddress;
+  const saved =
+    customer.found && hasSavedPlace && sameFirstName(req.query.name, customer.name)
+      ? {
+          name: customer.name,
+          location:
+            customer.lastLat != null && customer.lastLng != null
+              ? { lat: customer.lastLat, lng: customer.lastLng }
+              : null,
+          addressText: customer.lastAddress || "",
+          addressNote: customer.lastNote || "",
+        }
+      : null;
+  res.set("Cache-Control", "no-store");
   res.json({
     found: customer.found,
     name: customer.name,
@@ -2771,6 +2800,7 @@ app.get("/api/customer-lookup", async (req, res) => {
     ordersToLow: customer.ordersToLow,
     ordersToHigh: customer.ordersToHigh,
     rewardConfig,
+    saved,
   });
 });
 

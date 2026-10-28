@@ -19,6 +19,8 @@ let SIZE_OPTIONS = [];
 let ANNOUNCEMENT = null;
 let SHOP_INFO = {};
 let LINE_USER_ID = null;
+let LINE_DISPLAY_NAME = "";
+let SAVED_PROFILE = null; // { name, phone, location, addressText, addressNote } remembered against this LINE account
 
 // cart: lineId -> { itemId, name, price, qty, pastaChoice, sizeChoice }
 let cart = {};
@@ -137,6 +139,98 @@ function flashInvalid(elementId) {
   setTimeout(() => el.classList.remove("flash-invalid"), 1600);
 }
 
+// ---------- personalisation (remembered per LINE account) ----------
+
+// Asks the server who this LINE user is (it verifies the LIFF access token
+// with LINE) and what they last told us. Never blocks the menu: any failure
+// just means no greeting and no prefill.
+async function loadSavedProfile() {
+  try {
+    if (typeof liff === "undefined" || !LINE_USER_ID) {
+      showGreeting();
+      return;
+    }
+    const token = liff.getAccessToken();
+    if (!token) { showGreeting(); return; }
+    const res = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    if (data && data.known) {
+      SAVED_PROFILE = {
+        name: data.name || "",
+        phone: data.phone || "",
+        location: data.location || null,
+        addressText: data.addressText || "",
+        addressNote: data.addressNote || "",
+      };
+    }
+    if (data && data.displayName) LINE_DISPLAY_NAME = data.displayName;
+  } catch (err) {
+    console.error("Couldn't load saved details:", err);
+  }
+  showGreeting();
+  applySavedProfile();
+}
+
+// "Hello Lily!" as the first line of the page. Uses the name they gave us at
+// checkout, falling back to their LINE display name on a first visit.
+function showGreeting() {
+  const el = document.getElementById("greeting");
+  if (!el) return;
+  const full = (SAVED_PROFILE && SAVED_PROFILE.name) || LINE_DISPLAY_NAME || "";
+  const first = full.trim().split(/\s+/)[0];
+  if (!first) { el.classList.add("hidden"); return; }
+  el.textContent = `Hello ${first}! 👋`;
+  el.classList.remove("hidden");
+}
+
+// Big "Hello Lily!" card that fades away by itself after 3 seconds. The
+// smaller greeting in the header stays on screen afterwards.
+function showWelcomePopup() {
+  const full = (SAVED_PROFILE && SAVED_PROFILE.name) || LINE_DISPLAY_NAME || "";
+  const first = full.trim().split(/\s+/)[0];
+  if (!first) return;
+  const pop = document.getElementById("welcome-pop");
+  document.getElementById("welcome-pop-title").textContent = `Hello ${first}! 👋`;
+  document.getElementById("welcome-pop-sub").textContent = SAVED_PROFILE ? "Welcome back to Merlin's Dish" : "Welcome to Merlin's Dish";
+  pop.classList.add("show");
+  const hide = () => pop.classList.remove("show");
+  pop.addEventListener("click", hide, { once: true });
+  setTimeout(hide, 3000);
+}
+
+// Fills the contact fields and the rider note from what we remembered.
+// Only fills empty fields, so anything the customer typed is never overwritten.
+function applySavedProfile() {
+  if (!SAVED_PROFILE) return;
+  const setIfEmpty = (id, value) => {
+    const el = document.getElementById(id);
+    if (el && value && !el.value.trim()) el.value = value;
+  };
+  setIfEmpty("cart-name-input", SAVED_PROFILE.name);
+  setIfEmpty("cart-phone-input", SAVED_PROFILE.phone);
+  setIfEmpty("address-note", SAVED_PROFILE.addressNote);
+  setIfEmpty("manual-address", SAVED_PROFILE.addressText);
+  updateCheckoutEnabled();
+  if (typeof updateCheckRewardEnabled === "function") updateCheckRewardEnabled();
+}
+
+// Puts the pin on the last delivery address. Returns true if it did, so the
+// caller can skip jumping to the phone's GPS instead.
+function applySavedLocation() {
+  if (!SAVED_PROFILE || !SAVED_PROFILE.location || deliveryLocation || !map || !mapMarker) return false;
+  const { lat, lng } = SAVED_PROFILE.location;
+  map.setView([lat, lng], 16);
+  mapMarker.setLatLng([lat, lng]);
+  setDeliveryLocation(lat, lng);
+  if (SAVED_PROFILE.addressText) manualAddress = SAVED_PROFILE.addressText;
+  const txt = document.getElementById("saved-address-text");
+  txt.textContent = SAVED_PROFILE.addressText || "";
+  txt.classList.toggle("hidden", !SAVED_PROFILE.addressText);
+  document.getElementById("saved-address-hint").classList.remove("hidden");
+  document.getElementById("drag-hint").classList.add("hidden");
+  return true;
+}
+
 // ---------- startup ----------
 
 async function init() {
@@ -145,6 +239,7 @@ async function init() {
     if (liff.isLoggedIn()) {
       const profile = await liff.getProfile();
       LINE_USER_ID = profile.userId;
+      LINE_DISPLAY_NAME = profile.displayName || "";
     }
   } catch (err) {
     console.error("LIFF init failed (continuing anyway for browser testing):", err);
@@ -165,13 +260,12 @@ async function init() {
     const dfNote = document.getElementById("free-delivery-note");
     if (dfNote) {
       dfNote.innerHTML = `
-        <p class="dn-title">🚚 Delivery fees from Asok branch</p>
-        <ul class="dn-list">
-          <li><span>Within 2km</span><strong>Free on orders over ฿${freeDeliveryMin()}, or ฿${smallOrderFee()} flat</strong></li>
-          <li><span>2-5km</span><strong>฿50</strong></li>
-          <li><span>5-7.5km</span><strong>฿120</strong></li>
-          <li><span>7.5-10km</span><strong>฿180</strong></li>
-        </ul>`;
+        <div class="rate-cell rate-free"><span>Within 2km</span><strong>Free*</strong></div>
+        <div class="rate-cell"><span>2-5km</span><strong>฿50</strong></div>
+        <div class="rate-cell"><span>5-7.5km</span><strong>฿120</strong></div>
+        <div class="rate-cell"><span>7.5-10km</span><strong>฿180</strong></div>`;
+      const foot = document.getElementById("rate-foot");
+      if (foot) foot.textContent = `*Free on orders over ฿${freeDeliveryMin()}, or ฿${smallOrderFee()} flat`;
     }
     const dfLi = document.getElementById("direct-free-delivery-li");
     if (dfLi) dfLi.textContent = `🚚 Free delivery within 2km`;
@@ -189,12 +283,14 @@ async function init() {
   renderCategoryTabs();
   renderItemList();
   wireStaticEvents();
+  await loadSavedProfile();
   if (ANNOUNCEMENT) {
     showAnnouncementScreen();
   } else if (SHOW_DIRECT_ORDER_POPUP) {
     showDirectOrderScreen();
   } else {
     showScreen("menu-screen");
+    showWelcomePopup();
   }
 }
 
@@ -522,10 +618,9 @@ function cartTotal() {
 // ---------- loyalty lookup ----------
 
 function updateCheckRewardEnabled() {
-  const name = document.getElementById("cart-name-input").value.trim();
-  const phone = document.getElementById("cart-phone-input").value.trim();
-  const ok = name.length >= 1 && digitsOnly(phone).length >= 8;
-  document.getElementById("check-reward-btn").disabled = !ok;
+  // The separate "Check your reward" button is gone: the reward check now
+  // runs automatically when the customer taps Checkout. Kept as a no-op so
+  // existing callers don't break.
 }
 
 async function runCustomerLookup() {
@@ -538,11 +633,6 @@ async function runCustomerLookup() {
   }
   lastLookedUpPhone = phone;
 
-  const btn = document.getElementById("check-reward-btn");
-  const originalLabel = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "Checking...";
-
   try {
     const res = await fetch(`/api/customer-lookup?phone=${encodeURIComponent(phone)}`);
     loyaltyState = await res.json();
@@ -550,8 +640,6 @@ async function runCustomerLookup() {
     console.error("Customer lookup failed:", err);
     loyaltyState = null;
   }
-  btn.textContent = originalLabel;
-  updateCheckRewardEnabled();
   // Default which tier to offer: prefer the lower one if both are somehow
   // open (shouldn't happen once redeemed, but keeps this defensive).
   if (loyaltyState) {
@@ -936,6 +1024,7 @@ function ensureMapInitialized() {
     // The map screen was hidden (display:none) when first created, so
     // its size wasn't known then -- fix that now that it's visible.
     setTimeout(() => map.invalidateSize(), 50);
+    applySavedLocation();
     return;
   }
   if (typeof L === "undefined") {
@@ -961,13 +1050,15 @@ function ensureMapInitialized() {
     });
     mapMarker = L.marker(defaultCenter, { draggable: true, icon: redPinIcon }).addTo(map);
     mapMarker.on("dragend", () => {
+      document.getElementById("saved-address-hint").classList.add("hidden");
+      document.getElementById("drag-hint").classList.remove("hidden");
       const pos = mapMarker.getLatLng();
       setDeliveryLocation(pos.lat, pos.lng);
     });
     // Try to center on the customer's real location first, but this is
     // just a starting point -- they can drag the pin anywhere from here,
     // e.g. when ordering for delivery somewhere they aren't right now.
-    useMyLocation(true);
+    if (!applySavedLocation()) useMyLocation(true);
   } catch (err) {
     console.error("Map failed to initialize:", err);
     fallBackToManualAddress();
@@ -983,6 +1074,10 @@ function fallBackToManualAddress() {
 }
 
 function useMyLocation(silent) {
+  if (!silent) {
+    document.getElementById("saved-address-hint").classList.add("hidden");
+    document.getElementById("drag-hint").classList.remove("hidden");
+  }
   if (!map || !mapMarker) return; // map failed to load; manual address is already shown instead
   if (!navigator.geolocation) {
     if (!silent) showToast("Location isn't available on this device. Drag the pin manually.");
@@ -1302,6 +1397,13 @@ async function submitOrder() {
       return;
     }
 
+    SAVED_PROFILE = {
+      name: order.name,
+      phone: order.phone,
+      location: deliveryLocation ? { lat: deliveryLocation.lat, lng: deliveryLocation.lng } : (SAVED_PROFILE && SAVED_PROFILE.location) || null,
+      addressText: manualAddress || (SAVED_PROFILE && SAVED_PROFILE.addressText) || "",
+      addressNote: order.addressNote || "",
+    };
     document.getElementById("confirm-message").textContent =
       timing === "SCHEDULED" && scheduleDate && scheduleTime
         ? `Payment received! Your order is confirmed for delivery on ${formatDateDDMMYYYY(scheduleDate)} at ${scheduleTime}.`
@@ -1348,11 +1450,44 @@ function resetOrder() {
   lastLookedUpPhone = "";
   document.getElementById("redeem-reward-checkbox").checked = false;
   document.getElementById("reward-banner").classList.add("hidden");
-  document.getElementById("check-reward-btn").disabled = true;
-  document.getElementById("check-reward-btn").textContent = "Check your reward";
   updateCartBar();
   renderItemList();
   showScreen("menu-screen");
+  showGreeting();
+  applySavedProfile();
+}
+
+// Checkout is the only button on the cart screen. Tapping it quietly checks
+// the customer's loyalty count; if a reward is available they see the reward
+// screen first, otherwise they go straight on.
+async function onCheckout() {
+  const btn = document.getElementById("checkout-btn");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "One moment…";
+  try {
+    await runCustomerLookup();
+  } catch (err) {
+    console.error(err);
+  }
+  btn.textContent = label;
+  updateCheckoutEnabled();
+  const eligible = loyaltyState && (loyaltyState.canRedeemLow || loyaltyState.canRedeemHigh);
+  if (eligible) {
+    showScreen("reward-screen");
+    return;
+  }
+  proceedFromCart();
+}
+
+function proceedFromCart() {
+  if (shouldShowUpsell()) {
+    renderUpsellScreen();
+    showScreen("upsell-screen");
+  } else {
+    showScreen("delivery-screen");
+    ensureMapInitialized();
+  }
 }
 
 // ---------- wiring ----------
@@ -1367,15 +1502,7 @@ function wireStaticEvents() {
     showScreen("cart-screen");
   });
 
-  document.getElementById("checkout-btn").addEventListener("click", () => {
-    if (shouldShowUpsell()) {
-      renderUpsellScreen();
-      showScreen("upsell-screen");
-    } else {
-      showScreen("delivery-screen");
-      ensureMapInitialized();
-    }
-  });
+  document.getElementById("checkout-btn").addEventListener("click", onCheckout);
 
   document.getElementById("upsell-skip-btn").addEventListener("click", () => {
     renderCartScreen();
@@ -1400,7 +1527,7 @@ function wireStaticEvents() {
     updateCheckRewardEnabled();
     updateContactHint();
   });
-  document.getElementById("check-reward-btn").addEventListener("click", runCustomerLookup);
+  document.getElementById("reward-continue-btn").addEventListener("click", proceedFromCart);
 
   document.getElementById("redeem-reward-checkbox").addEventListener("change", (e) => {
     redeemChosen = e.target.checked;

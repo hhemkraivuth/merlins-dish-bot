@@ -192,6 +192,23 @@ function remainingVariantStock(itemId, variantId) {
   const key = variantKey(itemId, variantId);
   return variantStockCount.has(key) ? variantStockCount.get(key) : Infinity;
 }
+// Called when an order is accepted: takes the ordered quantity off a
+// size/pasta count, if one was set, and marks it sold out at zero.
+function deductVariantStock(itemId, variantId, qty) {
+  if (!variantId) return;
+  const key = variantKey(itemId, variantId);
+  if (!variantStockCount.has(key)) return;
+  const remaining = variantStockCount.get(key) - qty;
+  variantStockCount.set(key, remaining);
+  if (remaining <= 0) soldOutVariants.add(key);
+}
+function variantIdForEntry(itemId, entry) {
+  const dish = MENU.find((d) => d.id === itemId);
+  if (!dish) return null;
+  if (dish.requiresSize) return entry.sizeChoice || null;
+  if (dish.requiresPasta) return entry.pastaChoice || null;
+  return null;
+}
 function isVariantUnavailable(itemId, variantId) {
   return soldOutVariants.has(variantKey(itemId, variantId)) || remainingVariantStock(itemId, variantId) <= 0;
 }
@@ -1623,6 +1640,7 @@ async function finishOrder(userId, replyToken, session) {
   // Deduct from any tracked stock counts now that the order is confirmed.
   for (const entry of Object.values(session.cart)) {
     if (entry.itemId === "side_pasta") continue;
+    deductVariantStock(entry.itemId, variantIdForEntry(entry.itemId, entry), entry.qty);
     if (!stockCount.has(entry.itemId)) continue;
     const remaining = stockCount.get(entry.itemId) - entry.qty;
     stockCount.set(entry.itemId, remaining);
@@ -2008,13 +2026,12 @@ async function handleAdminCommand(replyToken, text) {
     const body = MENU.map((d) => {
       const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
       const variantList = d.requiresSize ? SIZE_OPTIONS : d.requiresPasta ? PASTA_OPTIONS : [];
-      const soldOutVariantNames = variantList
-        .filter((v) => isVariantUnavailable(d.id, v.id))
-        .map((v) => {
-          const remaining = remainingVariantStock(d.id, v.id);
-          return Number.isFinite(remaining) && remaining > 0 ? `${v.name} [${remaining} left]` : v.name;
-        });
-      const variantNote = soldOutVariantNames.length ? ` (${soldOutVariantNames.join(", ")} sold out)` : "";
+      // Show every size/pasta that has its own count or is sold out, so the
+      // numbers you set (e.g. Large 4, Regular 7) are always visible here.
+      const variantNotes = variantList
+        .filter((v) => isVariantUnavailable(d.id, v.id) || variantStockCount.has(variantKey(d.id, v.id)))
+        .map((v) => (isVariantUnavailable(d.id, v.id) ? `${v.name} sold out` : `${v.name} [${remainingVariantStock(d.id, v.id)} left]`));
+      const variantNote = variantNotes.length ? ` (${variantNotes.join(", ")})` : "";
       // isUnavailable() already folds in "all variants sold out", so the
       // tick/cross here always matches whether a customer can actually
       // order this dish, not just whether it was explicitly "soldout"-ed.
@@ -2040,53 +2057,82 @@ async function handleAdminCommand(replyToken, text) {
       return true;
     }
 
-    // 3-part form: "setstock <item> <variant> <n>"
-    if (parts.length === 4) {
-      const typedVariant = parts[2];
-      const n = parseInt(parts[3], 10);
-      const variantId = resolveVariantId(dish, typedVariant);
-      const validVariant = variantId
-        ? (dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS).find((v) => v.id === variantId)
-        : null;
-      if (!validVariant) {
-        const validList = dish.requiresSize
-          ? SIZE_OPTIONS.map((s) => s.id).join(", ")
-          : dish.requiresPasta
-          ? PASTA_OPTIONS.map((p) => p.id).join(", ")
-          : null;
-        await client.replyMessage(replyToken, {
-          type: "text",
-          text: validList
-            ? `"${dish.id}" doesn't have a size/pasta choice called "${typedVariant}". Valid choices: ${validList}.`
-            : `"${dish.id}" doesn't have separate sizes or pasta choices -- use "setstock ${dish.id} ${typedVariant}" to set the whole item's stock instead.`,
-        });
-        return true;
-      }
-      if (isNaN(n)) {
-        await client.replyMessage(replyToken, { type: "text", text: `Please send a number, e.g. "setstock ${dish.id} ${variantId === "regular" || variantId === "large" ? (variantId === "regular" ? "r" : "l") : variantId} 10".` });
-        return true;
-      }
-      const key = variantKey(dish.id, variantId);
-      variantStockCount.set(key, n);
-      if (n <= 0) soldOutVariants.add(key);
-      else soldOutVariants.delete(key);
+    // Everything after the item keyword. Accepts any of:
+    //   "setstock rws 4"                    whole dish
+    //   "setstock rws large 4"              one size or pasta
+    //   "setstock rws l4 r7"                several sizes in one message
+    //   "setstock rws large 4 regular 7"    same, with spaces
+    //   "setstock bolo luma 3 riga 5"       several pastas
+    const rest = parts.slice(2).join(" ").toLowerCase();
+
+    // Whole dish: just a number.
+    if (/^-?\d+$/.test(rest)) {
+      const n = Math.max(0, parseInt(rest, 10));
+      stockCount.set(dish.id, n);
+      if (n <= 0) soldOut.add(dish.id);
+      else soldOut.delete(dish.id);
+      await client.replyMessage(replyToken, { type: "text", text: `"${dish.id}" stock set to ${n}.` });
+      return true;
+    }
+
+    // One or more "<size or pasta> <number>" pairs, spaces optional.
+    const pairRe = /([a-z]+)\s*[:=]?\s*(-?\d+)/g;
+    const pairs = [...rest.matchAll(pairRe)];
+    const leftover = rest.replace(pairRe, "").replace(/[\s,]+/g, "");
+    const usage = dish.requiresSize
+      ? `"setstock ${dish.id} l4 r7" (sizes) or "setstock ${dish.id} 10" (whole dish)`
+      : dish.requiresPasta
+      ? `"setstock ${dish.id} luma 3 riga 5" (pastas) or "setstock ${dish.id} 10" (whole dish)`
+      : `"setstock ${dish.id} 10"`;
+    if (!pairs.length || leftover) {
+      await client.replyMessage(replyToken, { type: "text", text: `I couldn't read that. Try ${usage}.` });
+      return true;
+    }
+    if (!dish.requiresSize && !dish.requiresPasta) {
       await client.replyMessage(replyToken, {
         type: "text",
-        text: `"${validVariant.name}" stock for "${dish.name}" set to ${n}${n <= 0 ? " (marked sold out for this variant only)" : ""}.`,
+        text: `"${dish.id}" doesn't have separate sizes or pasta choices. Use "setstock ${dish.id} 10" to set the whole dish.`,
       });
       return true;
     }
 
-    // 2-part form: "setstock <item> <n>" -- whole item, unchanged behaviour.
-    const n = parseInt(parts[2], 10);
-    if (isNaN(n)) {
-      await client.replyMessage(replyToken, { type: "text", text: `Please send a number, e.g. "setstock ${dish.id} 10", or "setstock ${dish.id} <r|l> 10" for one size only.` });
+    // Resolve every pair first, so a typo in one never leaves the others
+    // half applied.
+    const variantList = dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS;
+    const resolved = [];
+    const unknown = [];
+    for (const m of pairs) {
+      const variantId = resolveVariantId(dish, m[1]);
+      const validVariant = variantId ? variantList.find((v) => v.id === variantId) : null;
+      if (!validVariant) unknown.push(m[1]);
+      else resolved.push({ variant: validVariant, n: Math.max(0, parseInt(m[2], 10)) });
+    }
+    if (unknown.length) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `"${dish.id}" doesn't have a choice called ${unknown.map((u) => `"${u}"`).join(", ")}. Valid choices: ${variantList.map((v) => v.id).join(", ")}. Nothing was changed.`,
+      });
       return true;
     }
-    stockCount.set(dish.id, n);
-    if (n <= 0) soldOut.add(dish.id);
-    else soldOut.delete(dish.id);
-    await client.replyMessage(replyToken, { type: "text", text: `"${dish.id}" stock set to ${n}.` });
+
+    let clearedWholeDish = false;
+    for (const { variant, n } of resolved) {
+      const key = variantKey(dish.id, variant.id);
+      variantStockCount.set(key, n);
+      if (n <= 0) soldOutVariants.add(key);
+      else soldOutVariants.delete(key);
+    }
+    // Setting stock above zero for any size/pasta means the dish is on sale
+    // again, so lift an earlier whole-dish "sold out" mark or zero count.
+    if (resolved.some((r) => r.n > 0)) {
+      if (soldOut.has(dish.id)) { soldOut.delete(dish.id); clearedWholeDish = true; }
+      if (stockCount.has(dish.id) && stockCount.get(dish.id) <= 0) { stockCount.delete(dish.id); clearedWholeDish = true; }
+    }
+    const summary = resolved.map((r) => `${r.variant.name} ${r.n}`).join(", ");
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `"${dish.name}" stock set: ${summary}.${clearedWholeDish ? " The earlier sold out mark on the whole dish was cleared." : ""}`,
+    });
     return true;
   }
   // ---- Promo commands ----
@@ -2937,6 +2983,18 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
         message: `"${size ? size.name : reqItem.sizeChoice}" ${dish.name} just sold out. Please pick a different size and try again.`,
       });
     }
+    {
+      const vId = dish.requiresSize ? reqItem.sizeChoice : dish.requiresPasta ? reqItem.pastaChoice : null;
+      const vLeft = vId ? remainingVariantStock(dish.id, vId) : Infinity;
+      if (vLeft !== Infinity && vLeft > 0 && reqItem.qty > vLeft) {
+        const vOpt = (dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS).find((v) => v.id === vId);
+        return res.status(409).json({
+          success: false,
+          error: "OUT_OF_STOCK",
+          message: `Only ${vLeft} of "${dish.name}" (${vOpt ? vOpt.name : vId}) left. Please adjust the quantity and try again.`,
+        });
+      }
+    }
     if (dish.requiresPasta && reqItem.pastaChoice && isVariantUnavailable(dish.id, reqItem.pastaChoice)) {
       const pasta = PASTA_OPTIONS.find((p) => p.id === reqItem.pastaChoice);
       return res.status(409).json({
@@ -2989,15 +3047,15 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
       // folded into `price` above) still applies. Reward lines are
       // always qty 1 -- ignore anything else the client might send here.
       const surcharge = price - dish.price;
-      lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null, discountAmount: 0, promoLabel: null });
+      lines.push({ itemId: dish.id, name: `${name} (reward redeemed)`, price: surcharge, qty: 1, pastaChoice: reqItem.pastaChoice || null, sizeChoice: reqItem.sizeChoice || null, discountAmount: 0, promoLabel: null });
       redeemApplied = true;
     } else if (reqItem.isRewardLine && !redeemApplied) {
       // Reward line was requested but didn't validate (see eligibility
       // check above) -- charge it at full price rather than silently
       // dropping the item from the order.
-      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null, discountAmount: 0, promoLabel: null });
+      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null, sizeChoice: reqItem.sizeChoice || null, discountAmount: 0, promoLabel: null });
     } else {
-      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null, discountAmount, promoLabel });
+      lines.push({ itemId: dish.id, name, price, qty: reqItem.qty, pastaChoice: reqItem.pastaChoice || null, sizeChoice: reqItem.sizeChoice || null, discountAmount, promoLabel });
     }
   }
 
@@ -3138,6 +3196,7 @@ async function completeLiffOrder(ctx) {
     redeemApplied, redeemTier, scheduledForMoment, orderNo, slipUrl, slip, manual } = ctx;
 
   for (const line of lines) {
+    deductVariantStock(line.itemId, variantIdForEntry(line.itemId, line), line.qty);
     if (!stockCount.has(line.itemId)) continue;
     const remaining = stockCount.get(line.itemId) - line.qty;
     stockCount.set(line.itemId, remaining);

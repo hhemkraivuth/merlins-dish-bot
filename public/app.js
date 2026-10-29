@@ -103,6 +103,8 @@ let redeemTier = null; // 5 | 10 -- which tier is being redeemed, when eligible 
 let selectedRewardDishId = null; // tier 10 only -- which dish from the dropdown
 let selectedRewardPastaId = "rigatoni"; // only relevant if that dish requiresPasta
 let lastLookedUpPhone = "";
+let lastLookupKey = ""; // phone digits + first name of the last lookup, so we only ask the server when one of them changes
+let lookupTimer = null;
 
 // ---------- small formatting helpers ----------
 
@@ -210,6 +212,8 @@ function applySavedProfile() {
   setIfEmpty("cart-phone-input", SAVED_PROFILE.phone);
   setIfEmpty("address-note", SAVED_PROFILE.addressNote);
   setIfEmpty("manual-address", SAVED_PROFILE.addressText);
+  const savedHint = document.getElementById("cart-saved-hint");
+  if (savedHint) savedHint.classList.remove("hidden");
   updateCheckoutEnabled();
   if (typeof updateCheckRewardEnabled === "function") updateCheckRewardEnabled();
 }
@@ -623,6 +627,27 @@ function updateCheckRewardEnabled() {
   // existing callers don't break.
 }
 
+function lookupKey() {
+  const digits = digitsOnly(document.getElementById("cart-phone-input").value.trim());
+  const first = document.getElementById("cart-name-input").value.trim().toLowerCase().split(/\s+/)[0] || "";
+  return `${digits}|${first}`;
+}
+
+// Runs the loyalty lookup shortly after the customer stops typing, so the
+// reward card can appear on the cart page itself. Skips if nothing changed.
+function scheduleLookup(delay) {
+  clearTimeout(lookupTimer);
+  lookupTimer = setTimeout(() => {
+    const digits = digitsOnly(document.getElementById("cart-phone-input").value.trim());
+    if (digits.length < 8) {
+      if (loyaltyState) { lastLookupKey = ""; runCustomerLookup(); }
+      return;
+    }
+    if (lookupKey() === lastLookupKey) return;
+    runCustomerLookup();
+  }, delay);
+}
+
 async function runCustomerLookup() {
   const phone = document.getElementById("cart-phone-input").value.trim();
   const digits = digitsOnly(phone);
@@ -631,7 +656,14 @@ async function runCustomerLookup() {
     renderRewardBanner();
     return;
   }
+  // A different number means a different customer: drop any reward they had ticked.
+  const prevDigits = digitsOnly(lastLookedUpPhone);
+  if (prevDigits && prevDigits !== digits) {
+    redeemChosen = false;
+    document.getElementById("redeem-reward-checkbox").checked = false;
+  }
   lastLookedUpPhone = phone;
+  lastLookupKey = lookupKey();
 
   try {
     const typedName = document.getElementById("cart-name-input").value.trim();
@@ -690,24 +722,23 @@ function renderRewardBanner() {
   const toggleLabel = document.getElementById("reward-toggle-label");
   const checkbox = document.getElementById("redeem-reward-checkbox");
 
-  if (!loyaltyState) {
-    banner.classList.add("hidden");
-    return;
-  }
+  const canRedeemSomething = !!loyaltyState && (loyaltyState.canRedeemLow || loyaltyState.canRedeemHigh);
 
-  banner.classList.remove("hidden");
-  progressText.textContent = progressCopy(loyaltyState);
-
-  const canRedeemSomething = loyaltyState.canRedeemLow || loyaltyState.canRedeemHigh;
-  toggleRow.classList.toggle("hidden", !canRedeemSomething);
-
+  // The reward card sits on the cart page and only appears for a customer
+  // who has actually earned a reward. Anyone else sees nothing extra.
   if (!canRedeemSomething) {
+    banner.classList.add("hidden");
+    toggleRow.classList.add("hidden");
     checkbox.checked = false;
     redeemChosen = false;
     removeRewardLine();
     renderRedeemOptions();
     return;
   }
+
+  banner.classList.remove("hidden");
+  progressText.textContent = progressCopy(loyaltyState);
+  toggleRow.classList.remove("hidden");
 
   const cfg = loyaltyState.rewardConfig || {};
   const itemLabel =
@@ -875,52 +906,67 @@ function updateDeliveryNudge() {
   fill.style.width = `${Math.min(100, Math.round((total / min) * 100))}%`;
 }
 
-// ---------- drinks/bacon upsell screen ----------
+// ---------- "Complete your meal" row on the cart page ----------
 
-// Shown once, right before the cart, only if the customer hasn't already
-// picked up a drink or the Bacon Steak -- a nudge to round out the order,
-// not a nag on every visit to the cart.
-function shouldShowUpsell() {
-  const lines = cartLines();
-  if (lines.length === 0) return false; // nothing to upsell against yet
-  const hasDrinkOrBacon = lines.some((l) => {
-    const dish = MENU.find((d) => d.id === l.itemId);
-    return dish && (dish.category === "drinks" || dish.id === "bacon_steak");
-  });
-  return !hasDrinkOrBacon;
+// Bacon Steak first, then the drinks. Built once per set of items so the
+// swipe position isn't lost every time something is added; the buttons just
+// update their count.
+function addonItems() {
+  const bacon = MENU.filter((d) => d.id === "bacon_steak" && !isUnavailableClient(d));
+  const drinks = MENU.filter((d) => d.category === "drinks" && !isUnavailableClient(d));
+  return [...bacon, ...drinks];
 }
 
-function renderUpsellScreen() {
-  const wrap = document.getElementById("upsell-items");
-  wrap.innerHTML = "";
-  const upsellItems = MENU.filter((d) => (d.category === "drinks" || d.id === "bacon_steak") && !isUnavailableClient(d));
+function renderAddonsRow() {
+  const section = document.getElementById("addons-section");
+  const wrap = document.getElementById("addon-row");
+  if (!section || !wrap) return;
+  const items = addonItems();
+  section.classList.toggle("hidden", items.length === 0);
+  const sig = items.map((d) => d.id).join(",");
 
-  upsellItems.forEach((dish) => {
-    const row = document.createElement("div");
-    row.className = "upsell-item-row";
-    // Same rule as the main menu: item-specific promos get the badge,
-    // the storewide promo never shows per-item, even here.
-    const upsellPrice =
-      dish.promoPercentOff != null && dish.promoIsItemSpecific
-        ? `<span class="item-price-was">฿${dish.price}</span> ฿${Math.round(dish.price * (1 - dish.promoPercentOff / 100))} <span class="item-promo-badge">${dish.promoPercentOff}% off</span>`
-        : `฿${dish.price}`;
-    row.innerHTML = `
-      <div class="upsell-item-info">
-        <span class="upsell-item-name">${dish.name}</span>
-        <span class="upsell-item-price">${upsellPrice}</span>
-      </div>
-      <button type="button" class="upsell-add-btn">Add</button>
-    `;
-    const btn = row.querySelector(".upsell-add-btn");
-    btn.addEventListener("click", () => {
+  if (wrap.dataset.sig !== sig) {
+    wrap.dataset.sig = sig;
+    wrap.innerHTML = "";
+    items.forEach((dish) => {
       const finalPrice = dish.promoPercentOff != null ? Math.round(dish.price * (1 - dish.promoPercentOff / 100)) : dish.price;
-      addToCart(dish.id, dish.id, dish.name, finalPrice, 1, null, undefined, dish.price);
-      btn.textContent = "Added ✓";
-      btn.classList.add("added");
-      btn.disabled = true;
-      showToast(`Added 1x ${dish.name}`);
+      const priceHtml =
+        finalPrice !== dish.price
+          ? `<span class="item-price-was">฿${dish.price}</span>฿${finalPrice}`
+          : `฿${dish.price}`;
+      const cell = document.createElement("div");
+      cell.className = "addon";
+      cell.dataset.itemId = dish.id;
+      cell.innerHTML = `
+        <div class="addon-in">
+          <div class="addon-name">${dish.name}</div>
+          <div class="addon-bottom">
+            <span class="addon-price">${priceHtml}</span>
+            <button type="button" class="addon-plus" aria-label="Add ${dish.name}">+</button>
+          </div>
+        </div>
+      `;
+      cell.querySelector(".addon-plus").addEventListener("click", () => {
+        const inCart = cart[dish.id] ? cart[dish.id].qty : 0;
+        const max = dish.remaining != null ? dish.remaining : Infinity;
+        if (inCart >= max) {
+          showToast(`Only ${max} of "${dish.name}" left`, true);
+          return;
+        }
+        addToCart(dish.id, dish.id, dish.name, finalPrice, 1, null, undefined, dish.price);
+        renderCartScreen();
+        renderItemList();
+      });
+      wrap.appendChild(cell);
     });
-    wrap.appendChild(row);
+  }
+
+  // Show how many of each are already in the cart on the button itself.
+  wrap.querySelectorAll(".addon").forEach((cell) => {
+    const qty = cart[cell.dataset.itemId] ? cart[cell.dataset.itemId].qty : 0;
+    const btn = cell.querySelector(".addon-plus");
+    btn.textContent = qty > 0 ? String(qty) : "+";
+    btn.classList.toggle("has", qty > 0);
   });
 }
 
@@ -987,6 +1033,7 @@ function renderCartScreen() {
     });
   }
   document.getElementById("cart-screen-total").textContent = `฿${cartTotal()}`;
+  renderAddonsRow();
   updateCartDeliveryHint();
   updateCheckoutEnabled();
 }
@@ -1508,6 +1555,7 @@ function resetOrder() {
   selectedRewardDishId = null;
   selectedRewardPastaId = "rigatoni";
   lastLookedUpPhone = "";
+  lastLookupKey = "";
   document.getElementById("redeem-reward-checkbox").checked = false;
   document.getElementById("reward-banner").classList.add("hidden");
   updateCartBar();
@@ -1517,37 +1565,28 @@ function resetOrder() {
   applySavedProfile();
 }
 
-// Checkout is the only button on the cart screen. Tapping it quietly checks
-// the customer's loyalty count; if a reward is available they see the reward
-// screen first, otherwise they go straight on.
+// Checkout is the only button on the cart screen. The reward card and the
+// add ons are already on this page, so this goes straight to delivery. The
+// loyalty check only re-runs if the name or number changed since the last one.
 async function onCheckout() {
   const btn = document.getElementById("checkout-btn");
   btn.disabled = true;
   const label = btn.textContent;
   btn.textContent = "One moment…";
   try {
-    await runCustomerLookup();
+    clearTimeout(lookupTimer);
+    if (lookupKey() !== lastLookupKey) await runCustomerLookup();
   } catch (err) {
     console.error(err);
   }
   btn.textContent = label;
   updateCheckoutEnabled();
-  const eligible = loyaltyState && (loyaltyState.canRedeemLow || loyaltyState.canRedeemHigh);
-  if (eligible) {
-    showScreen("reward-screen");
-    return;
-  }
   proceedFromCart();
 }
 
 function proceedFromCart() {
-  if (shouldShowUpsell()) {
-    renderUpsellScreen();
-    showScreen("upsell-screen");
-  } else {
-    showScreen("delivery-screen");
-    ensureMapInitialized();
-  }
+  showScreen("delivery-screen");
+  ensureMapInitialized();
 }
 
 // ---------- wiring ----------
@@ -1560,34 +1599,25 @@ function wireStaticEvents() {
   document.getElementById("view-cart-btn").addEventListener("click", () => {
     renderCartScreen();
     showScreen("cart-screen");
+    scheduleLookup(0); // a returning customer's number is already filled in
   });
 
   document.getElementById("checkout-btn").addEventListener("click", onCheckout);
-
-  document.getElementById("upsell-skip-btn").addEventListener("click", () => {
-    renderCartScreen();
-    showScreen("delivery-screen");
-    ensureMapInitialized();
-  });
-  document.getElementById("upsell-continue-btn").addEventListener("click", () => {
-    renderCartScreen();
-    showScreen("delivery-screen");
-    ensureMapInitialized();
-  });
 
   document.getElementById("cart-name-input").addEventListener("input", () => {
     nameTouched = true;
     updateCheckoutEnabled();
     updateCheckRewardEnabled();
     updateContactHint();
+    scheduleLookup(700);
   });
   document.getElementById("cart-phone-input").addEventListener("input", () => {
     phoneTouched = true;
     updateCheckoutEnabled();
     updateCheckRewardEnabled();
     updateContactHint();
+    scheduleLookup(700);
   });
-  document.getElementById("reward-continue-btn").addEventListener("click", proceedFromCart);
 
   document.getElementById("redeem-reward-checkbox").addEventListener("change", (e) => {
     redeemChosen = e.target.checked;

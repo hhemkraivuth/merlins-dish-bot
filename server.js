@@ -2060,7 +2060,7 @@ async function handleAdminCommand(replyToken, text) {
     // Everything after the item keyword. Accepts any of:
     //   "setstock rws 4"                    whole dish
     //   "setstock rws large 4"              one size or pasta
-    //   "setstock rws l4 r7"                several sizes in one message
+    //   "setstock rws l4 r7" or "4l 7r"     several sizes in one message (number first or last)
     //   "setstock rws large 4 regular 7"    same, with spaces
     //   "setstock bolo luma 3 riga 5"       several pastas
     const rest = parts.slice(2).join(" ").toLowerCase();
@@ -2076,7 +2076,7 @@ async function handleAdminCommand(replyToken, text) {
     }
 
     // One or more "<size or pasta> <number>" pairs, spaces optional.
-    const pairRe = /([a-z]+)\s*[:=]?\s*(-?\d+)/g;
+    const pairRe = /([a-z]+)\s*[:=]?\s*(-?\d+)|(-?\d+)\s*([a-z]+)/g;
     const pairs = [...rest.matchAll(pairRe)];
     const leftover = rest.replace(pairRe, "").replace(/[\s,]+/g, "");
     const usage = dish.requiresSize
@@ -2102,10 +2102,13 @@ async function handleAdminCommand(replyToken, text) {
     const resolved = [];
     const unknown = [];
     for (const m of pairs) {
-      const variantId = resolveVariantId(dish, m[1]);
+      // Either order works: "l4" or "4l", "large 4" or "4 large".
+      const word = m[1] || m[4];
+      const num = m[2] || m[3];
+      const variantId = resolveVariantId(dish, word);
       const validVariant = variantId ? variantList.find((v) => v.id === variantId) : null;
-      if (!validVariant) unknown.push(m[1]);
-      else resolved.push({ variant: validVariant, n: Math.max(0, parseInt(m[2], 10)) });
+      if (!validVariant) unknown.push(word);
+      else resolved.push({ variant: validVariant, n: Math.max(0, parseInt(num, 10)) });
     }
     if (unknown.length) {
       await client.replyMessage(replyToken, {

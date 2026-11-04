@@ -1697,6 +1697,7 @@ async function finishOrder(userId, replyToken, session) {
     total,
     slipRef: session.slipRef,
     slipUrl: session.slipUrl,
+    deliveryFee: deliveryFeeAmount,
   });
 
   // Register the reminder job for scheduled (chat-bot) orders too --
@@ -3260,6 +3261,7 @@ async function completeLiffOrder(ctx) {
     slipUrl,
     orderNo,
     promoLabel: promoLabelsUsed.length ? promoLabelsUsed.join(", ") : null,
+    deliveryFee: deliveryFeeAmount,
   });
 
   const loyaltyResult = await recordOrder({

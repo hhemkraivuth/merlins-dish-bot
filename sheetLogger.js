@@ -130,6 +130,27 @@ async function logOrder(order) {
     ]);
   }
 
+  // What the customer paid for delivery, as its own row so the back of house app can count it as income.
+  // Type "Delivery" is ignored by getDishOrderCounts (it only reads Type "Order" rows). Free delivery logs nothing.
+  const deliveryFee = Number(order.deliveryFee) || 0;
+  if (deliveryFee > 0) {
+    rows.push([
+      date,
+      time,
+      "Delivery fee",
+      "LINE Bot",
+      "Delivery",
+      "",
+      deliveryFee,
+      order.name,
+      "",
+      "",
+      order.slipRef || "",
+      "",
+      order.orderNo ? "'" + order.orderNo : "",
+    ]);
+  }
+
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,

@@ -3818,6 +3818,7 @@ try {
     menu: MENU,
     categories: CATEGORIES,
     menuStore,
+    uploadMenuPhoto,
     persist: persistShopSettings,
     setAnnouncement,
     clearAnnouncement,

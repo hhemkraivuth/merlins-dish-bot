@@ -28,7 +28,7 @@ function mount(app, ctx) {
   const token = process.env.ADMIN_API_TOKEN;
   if (!token) return false;
   const router = express.Router();
-  router.use(express.json({ limit: "100kb" }));
+  router.use(express.json({ limit: "6mb" }));
   router.use((req, res, next) => (sameToken(req.get("x-admin-token"), token) ? next() : res.status(401).json({ error: "Not allowed" })));
   const wrap = (fn) => async (req, res) => {
     try { await fn(req, res); } catch (err) { console.error("Admin API:", err); res.status(500).json({ error: "Something went wrong" }); }
@@ -104,6 +104,25 @@ function mount(app, ctx) {
   }));
   router.post("/promo/item/clear", wrap(async (req, res) => { ctx.clearItemPromo((req.body || {}).id); await done(res); }));
 
+  // Dish photo: the browser sends a resized photo as a data URL, stored the same way as LINE group photos.
+  const photoOf = async (dataUrl) => {
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ""));
+    if (!m) return { error: "That does not look like a photo (use JPG, PNG or WebP)" };
+    const buf = Buffer.from(m[2], "base64");
+    if (buf.length > 4.5 * 1024 * 1024) return { error: "That photo is too big, please pick a smaller one" };
+    const url = ctx.uploadMenuPhoto ? await ctx.uploadMenuPhoto(buf, m[1]) : null;
+    if (!url) return { error: "The photo could not be saved (photo storage is not set up or failed)" };
+    return { url };
+  };
+  router.post("/menu/image", wrap(async (req, res) => {
+    const b = req.body || {};
+    const p = await photoOf(b.data);
+    if (p.error) return bad(res, p.error);
+    const r = await ctx.menuStore.updateItem(ctx.menu, b.id, { image: p.url });
+    if (!r.ok) return bad(res, "That item is not on the menu");
+    await done(res);
+  }));
+
   // Menu
   router.post("/menu/price", wrap(async (req, res) => {
     const b = req.body || {};
@@ -131,7 +150,9 @@ function mount(app, ctx) {
     if (!name) return bad(res, "The new item needs a name");
     if (!(price >= 0)) return bad(res, "That price does not look right");
     if (!ctx.categories.some((c) => c.id === b.category)) return bad(res, "Pick a category");
-    const item = { id: ctx.menuStore.makeItemId(name, ctx.menu), name, price: Math.round(price), category: b.category, image: b.image || null, description: String(b.description || "").trim() };
+    let image = null;
+    if (b.imageData) { const p = await photoOf(b.imageData); if (p.error) return bad(res, p.error); image = p.url; }
+    const item = { id: ctx.menuStore.makeItemId(name, ctx.menu), name, price: Math.round(price), category: b.category, image, description: String(b.description || "").trim() };
     await ctx.menuStore.addItem(ctx.menu, item);
     await done(res);
   }));

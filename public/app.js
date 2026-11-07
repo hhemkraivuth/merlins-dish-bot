@@ -51,14 +51,19 @@ function freeDeliveryMin() {
 function smallOrderFee() {
   return SHOP_INFO.smallOrderFee != null ? SHOP_INFO.smallOrderFee : 30;
 }
+// The three flat zone fees come from the server (/api/shop-info zoneFees). If they are missing the old numbers are used.
+function zoneFee(key, fallback) {
+  const z = SHOP_INFO && SHOP_INFO.zoneFees;
+  return z && z[key] != null && Number.isFinite(Number(z[key])) ? Number(z[key]) : fallback;
+}
 function computeDeliveryFee(km, foodTotal) {
   if (km <= 2) {
     const fee = foodTotal >= freeDeliveryMin() ? 0 : smallOrderFee();
     return { fee, manual: false, label: fee === 0 ? "FREE (within 2km)" : `฿${fee} (under ฿${freeDeliveryMin()})` };
   }
-  if (km <= 5) return { fee: 50, manual: false, label: "฿50 (2-5km)" };
-  if (km <= 7.5) return { fee: 120, manual: false, label: "฿120 (5-7.5km)" };
-  if (km <= 10) return { fee: 180, manual: false, label: "฿180 (7.5-10km)" };
+  if (km <= 5) return { fee: zoneFee("zone2to5", 50), manual: false, label: `฿${zoneFee("zone2to5", 50)} (2-5km)` };
+  if (km <= 7.5) return { fee: zoneFee("zone5to75", 120), manual: false, label: `฿${zoneFee("zone5to75", 120)} (5-7.5km)` };
+  if (km <= 10) return { fee: zoneFee("zone75to10", 180), manual: false, label: `฿${zoneFee("zone75to10", 180)} (7.5-10km)` };
   return { fee: null, manual: true, label: null };
 }
 
@@ -265,9 +270,9 @@ async function init() {
     if (dfNote) {
       dfNote.innerHTML = `
         <div class="rate-cell rate-free"><span>Within 2km</span><strong>Free*</strong></div>
-        <div class="rate-cell"><span>2-5km</span><strong>฿50</strong></div>
-        <div class="rate-cell"><span>5-7.5km</span><strong>฿120</strong></div>
-        <div class="rate-cell"><span>7.5-10km</span><strong>฿180</strong></div>`;
+        <div class="rate-cell"><span>2-5km</span><strong>฿${zoneFee("zone2to5", 50)}</strong></div>
+        <div class="rate-cell"><span>5-7.5km</span><strong>฿${zoneFee("zone5to75", 120)}</strong></div>
+        <div class="rate-cell"><span>7.5-10km</span><strong>฿${zoneFee("zone75to10", 180)}</strong></div>`;
       const foot = document.getElementById("rate-foot");
       if (foot) foot.textContent = `*Free on orders over ฿${freeDeliveryMin()}, or ฿${smallOrderFee()} flat`;
     }

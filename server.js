@@ -231,6 +231,19 @@ let manualOpenOverride = null;
 // date range has passed. Resets on restart, same as manualOpenOverride.
 let scheduledClosures = [];
 
+// One-off opening windows for a single date, for closing early or opening late: { date: "YYYY-MM-DD", open: "HH:MM", close: "HH:MM" }.
+// On that date the window replaces the normal hours (no lunch gap). Set from the back office web app.
+let specialHours = [];
+function specialHoursToday() {
+  const todayStr = bangkokDateStr(bangkokNow());
+  specialHours = specialHours.filter((x) => x.date >= todayStr);
+  return specialHours.find((x) => x.date === todayStr) || null;
+}
+function minutesOf(hhmm) {
+  const [h, m] = String(hhmm).split(":").map(Number);
+  return h * 60 + m;
+}
+
 // Regular hours: Monday-Friday, 11:00-13:30 and 15:00-21:00, Bangkok time
 // (UTC+7, no DST). Closed during the 13:30-15:00 gap and on weekends by
 // default. This is the default until Lily changes it or texts a special
@@ -391,6 +404,12 @@ function isScheduledClosureToday() {
 function isShopOpen() {
   if (manualOpenOverride !== null) return manualOpenOverride;
   if (isScheduledClosureToday()) return false;
+  const special = specialHoursToday();
+  if (special) {
+    const nowS = bangkokNow();
+    const mins = nowS.getHours() * 60 + nowS.getMinutes();
+    return mins >= minutesOf(special.open) && mins < minutesOf(special.close);
+  }
   const now = bangkokNow();
   const day = now.getDay(); // 0 = Sunday, 6 = Saturday
   if (day === 0 || day === 6) return false;
@@ -410,6 +429,10 @@ function closedMessage() {
   }
   if (manualOpenOverride === null && isScheduledClosureToday()) {
     return "Merlin's Dish is closed today for a scheduled day off. Sorry for the inconvenience, please check back another day! 🙏";
+  }
+  const specialNow = manualOpenOverride === null ? specialHoursToday() : null;
+  if (specialNow) {
+    return `Merlin's Dish is open ${specialNow.open}-${specialNow.close} today. We're closed right now, please come back during those hours, or schedule an order for another time! 🕐`;
   }
   return `Merlin's Dish is open Monday-Friday, 11:00-13:30 and 15:00-21:00. We're closed right now, please come back during our hours! 🕐`;
 }
@@ -569,15 +592,18 @@ function distanceKm(lat1, lon1, lat2, lon2) {
 // matter how much is ordered. 5-7.5km: flat ฿120. 7.5-10km: flat ฿180.
 // Beyond 10km needs Merlin's manual confirmation.
 // Both numbers can be changed in Railway variables, no code edit needed.
-const FREE_DELIVERY_MIN = Number(process.env.FREE_DELIVERY_MIN || 300);
-const SMALL_ORDER_FEE = Number(process.env.SMALL_ORDER_FEE || 30);
+// All of these can also be changed from the back office web app (see adminApi.js), which saves them
+// to the Shop Settings tab so they survive a restart.
+let FREE_DELIVERY_MIN = Number(process.env.FREE_DELIVERY_MIN || 300);
+let SMALL_ORDER_FEE = Number(process.env.SMALL_ORDER_FEE || 30);
+const ZONE_FEES = { zone2to5: 50, zone5to75: 120, zone75to10: 180 };
 function computeDeliveryFee(km, foodTotal) {
   if (km <= 2) {
     return { fee: foodTotal >= FREE_DELIVERY_MIN ? 0 : SMALL_ORDER_FEE, manual: false };
   }
-  if (km <= 5) return { fee: 50, manual: false };
-  if (km <= 7.5) return { fee: 120, manual: false };
-  if (km <= 10) return { fee: 180, manual: false };
+  if (km <= 5) return { fee: ZONE_FEES.zone2to5, manual: false };
+  if (km <= 7.5) return { fee: ZONE_FEES.zone5to75, manual: false };
+  if (km <= 10) return { fee: ZONE_FEES.zone75to10, manual: false };
   return { fee: null, manual: true };
 }
 
@@ -2589,7 +2615,7 @@ async function handleFollow(userId, replyToken) {
       `Hello, welcome to the kitchen 🥘✨\n\n` +
       `We're a small neighbourhood kitchen crafting slow cooked stews, soups, and pasta, made for homey comfort. 🤌🏼\n\n` +
       `Ready to order? Just tap Order Now in the menu below, or type "menu" anytime.\n\n` +
-      `🪄 Order with us here for lower menu prices, free delivery within 2km on orders from ฿${FREE_DELIVERY_MIN}, ฿${SMALL_ORDER_FEE} below that, a flat ฿50 up to 5km, ฿120 from 5 to 7.5km, and ฿180 from 7.5 to 10km.\n` +
+      `🪄 Order with us here for lower menu prices, free delivery within 2km on orders from ฿${FREE_DELIVERY_MIN}, ฿${SMALL_ORDER_FEE} below that, a flat ฿${ZONE_FEES.zone2to5} up to 5km, ฿${ZONE_FEES.zone5to75} from 5 to 7.5km, and ฿${ZONE_FEES.zone75to10} from 7.5 to 10km.\n` +
       `⚡ Ordering direct also means no middle man taking a cut, so more of what you pay goes straight into the kitchen, the ingredients, and keeping this a small, real thing.\n\n` +
       `Got a question instead? Just ask, we're happy to help.\n\n` +
       `Comfort Food Made With Magic ✨\n` +
@@ -2687,6 +2713,7 @@ app.get("/api/shop-info", (req, res) => {
     closedMessage: closedMessage(),
     freeDeliveryMin: FREE_DELIVERY_MIN,
     smallOrderFee: SMALL_ORDER_FEE,
+    zoneFees: ZONE_FEES,
   });
 });
 
@@ -3596,7 +3623,10 @@ async function handleEvent(event) {
 
     if (process.env.ADMIN_USER_ID && userId === process.env.ADMIN_USER_ID) {
       const handled = await handleAdminCommand(event.replyToken, text);
-      if (handled) return;
+      if (handled) {
+        persistShopSettings().catch(() => {});
+        return;
+      }
     }
 
     const session = getSession(userId);
@@ -3730,6 +3760,89 @@ async function handleEvent(event) {
   }
 }
 
+// ---------- shop settings: saved copy + back office control API ----------
+const shopSettings = require("./shopSettings");
+const adminApi = require("./adminApi");
+
+function shopSnapshot() {
+  return {
+    announcement: getAnnouncement(),
+    storewide: getStorewidePromo(),
+    itemPromos: getItemPromos(),
+    hours: { override: manualOpenOverride, closures: scheduledClosures, special: specialHours },
+    tiers: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
+  };
+}
+
+function applyTiers(t) {
+  if (!t) return;
+  const ok = (v) => Number.isFinite(Number(v)) && Number(v) >= 0;
+  if (ok(t.freeMin)) FREE_DELIVERY_MIN = Number(t.freeMin);
+  if (ok(t.smallFee)) SMALL_ORDER_FEE = Number(t.smallFee);
+  ["zone2to5", "zone5to75", "zone75to10"].forEach((k) => { if (ok(t[k])) ZONE_FEES[k] = Number(t[k]); });
+}
+
+function applyHours(h) {
+  if (!h) return;
+  manualOpenOverride = h.override === true ? true : h.override === false ? false : null;
+  scheduledClosures = Array.isArray(h.closures) ? h.closures.filter((c) => c && c.start && c.end) : [];
+  specialHours = Array.isArray(h.special) ? h.special.filter((x) => x && x.date && x.open && x.close) : [];
+}
+
+function applyShopSettings(saved) {
+  if (!saved) return;
+  if (saved.announcement) setAnnouncement(saved.announcement);
+  if (saved.storewide) setStorewidePromo(saved.storewide);
+  if (saved.itemPromos && typeof saved.itemPromos === "object") {
+    Object.keys(getItemPromos()).forEach((id) => clearItemPromo(id));
+    Object.entries(saved.itemPromos).forEach(([id, p]) => setItemPromo(id, p));
+  }
+  applyHours(saved.hours);
+  applyTiers(saved.tiers);
+}
+
+// Saves the live state, one tab row per group. Quiet and safe: never throws.
+async function persistShopSettings() {
+  const snap = shopSnapshot();
+  const results = await Promise.all([
+    shopSettings.save("announcement", snap.announcement),
+    shopSettings.save("promos", { storewide: snap.storewide, itemPromos: snap.itemPromos }),
+    shopSettings.save("hours", snap.hours),
+    shopSettings.save("tiers", snap.tiers),
+  ]);
+  return results.every(Boolean);
+}
+
+try {
+  adminApi.mount(app, {
+    menu: MENU,
+    categories: CATEGORIES,
+    menuStore,
+    persist: persistShopSettings,
+    setAnnouncement,
+    clearAnnouncement,
+    getStorewidePromo,
+    setStorewidePromo,
+    setItemPromo,
+    clearItemPromo,
+    setHours: (h) => applyHours(h),
+    setTiers: (t) => applyTiers(t),
+    state: () => ({
+      now: bangkokNow().toISOString(),
+      open: { isOpen: isShopOpen(), message: isShopOpen() ? null : closedMessage(), override: manualOpenOverride, closures: scheduledClosures, special: specialHours, normalHours: `Mon-Fri ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00` },
+      announcement: { ...getAnnouncement(), live: isAnnouncementLiveToday() },
+      storewidePromo: getStorewidePromo(),
+      itemPromos: getItemPromos(),
+      categories: CATEGORIES,
+      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null })),
+      removed: menuStore.listRemoved().map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category })),
+      delivery: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
+    }),
+  });
+} catch (err) {
+  console.error("Back office control API failed to start, the bot carries on without it:", err.message);
+}
+
 const PORT = process.env.PORT || 3000;
 app.get("/health", (req, res) => res.send("Merlin's Dish bot is running."));
 // Apply any menu changes saved from the LINE group (removed dishes, new
@@ -3738,6 +3851,12 @@ app.get("/health", (req, res) => res.send("Merlin's Dish bot is running."));
 menuStore
   .loadMenuOverrides(MENU)
   .catch((err) => console.error("Menu overrides failed to load:", err.message))
+  .then(() => shopSettings.loadAll())
+  .then((saved) => {
+    // Bring back what was set before the last restart. If nothing was saved, the built in defaults stay.
+    applyShopSettings({ announcement: saved.announcement, storewide: saved.promos && saved.promos.storewide, itemPromos: saved.promos && saved.promos.itemPromos, hours: saved.hours, tiers: saved.tiers });
+  })
+  .catch((err) => console.error("Shop settings failed to apply:", err.message))
   .finally(() => {
     app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
   });

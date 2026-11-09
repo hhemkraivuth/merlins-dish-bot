@@ -3835,7 +3835,7 @@ try {
       storewidePromo: getStorewidePromo(),
       itemPromos: getItemPromos(),
       categories: CATEGORIES,
-      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null })),
+      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize })),
       removed: menuStore.listRemoved().map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category })),
       delivery: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
     }),

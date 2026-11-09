@@ -20,6 +20,7 @@ function sameToken(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+const OPTIONS = ["none", "pasta", "size"];
 const bad = (res, msg) => res.status(400).json({ error: msg });
 const num = (v) => (v === "" || v === null || v === undefined ? NaN : Number(v));
 
@@ -139,6 +140,12 @@ function mount(app, ctx) {
     if (b.description !== undefined) patch.description = String(b.description).trim();
     if (b.category !== undefined) { if (!ctx.categories.some((c) => c.id === b.category)) return bad(res, "Unknown category"); patch.category = b.category; }
     if (b.price !== undefined) { const p = num(b.price); if (!(p >= 0)) return bad(res, "That price does not look right"); patch.price = Math.round(p); }
+    // What the customer must pick first: "pasta" (Noir Ragu style), "size" (the stews) or "none".
+    if (b.options !== undefined) {
+      if (!OPTIONS.includes(b.options)) return bad(res, "Choices must be none, pasta or size");
+      patch.requiresPasta = b.options === "pasta";
+      patch.requiresSize = b.options === "size";
+    }
     const r = await ctx.menuStore.updateItem(ctx.menu, b.id, patch);
     if (!r.ok) return bad(res, "That item is not on the menu");
     await done(res);
@@ -152,7 +159,10 @@ function mount(app, ctx) {
     if (!ctx.categories.some((c) => c.id === b.category)) return bad(res, "Pick a category");
     let image = null;
     if (b.imageData) { const p = await photoOf(b.imageData); if (p.error) return bad(res, p.error); image = p.url; }
+    if (b.options !== undefined && b.options !== "" && !OPTIONS.includes(b.options)) return bad(res, "Choices must be none, pasta or size");
     const item = { id: ctx.menuStore.makeItemId(name, ctx.menu), name, price: Math.round(price), category: b.category, image, description: String(b.description || "").trim() };
+    if (b.options === "pasta") item.requiresPasta = true;
+    if (b.options === "size") item.requiresSize = true;
     await ctx.menuStore.addItem(ctx.menu, item);
     await done(res);
   }));

@@ -22,6 +22,25 @@ let LINE_USER_ID = null;
 let LINE_DISPLAY_NAME = "";
 let SAVED_PROFILE = null; // { name, phone, location, addressText, addressNote } remembered against this LINE account
 
+// Where this customer came from (e.g. ?src=gnew on the new Grab customer card, ?src=gback on the return card, ?src=ig
+// on Instagram). Read once, kept for the session, and sent with the order. LIFF may hand the query over in liff.state.
+const CARD_SOURCES = ["gnew", "gback"]; // must match GRAB_CARD_SOURCES in server.js
+function entrySource() {
+  try {
+    const saved = sessionStorage.getItem("entrySrc");
+    if (saved) return saved;
+  } catch (e) { /* storage blocked, read it fresh below */ }
+  let src = "";
+  try {
+    const q = new URLSearchParams(location.search);
+    src = q.get("src") || "";
+    if (!src && q.get("liff.state")) src = new URLSearchParams(String(q.get("liff.state")).replace(/^\//, "").replace(/^\?/, "")).get("src") || "";
+  } catch (e) { /* no source, fine */ }
+  src = String(src).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 12);
+  try { if (src) sessionStorage.setItem("entrySrc", src); } catch (e) { /* skip */ }
+  return src;
+}
+
 // cart: lineId -> { itemId, name, price, qty, pastaChoice, sizeChoice }
 let cart = {};
 
@@ -726,6 +745,9 @@ async function runCustomerLookup() {
 // Merlin doesn't do fluff or sweet talk, just a straight, warm nudge.
 function progressCopy(state) {
   if (!state || !state.found) {
+    if (CARD_SOURCES.includes(entrySource())) {
+      return "Welcome to ordering direct. Your first order counts double, so you start at 2 of 5 towards a free Bacon Steak.";
+    }
     return "You're new here. Don't worry, your rewards start counting now.";
   }
   if (state.canRedeemHigh) {
@@ -1469,6 +1491,7 @@ async function submitOrder() {
     phone: document.getElementById("cart-phone-input").value.trim(),
     paymentMethod,
     redeemTier: isRedeemingReward() ? redeemTier : null,
+    src: entrySource(),
   };
 
   const form = new FormData();

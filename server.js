@@ -57,6 +57,8 @@ const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIAS
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
 const { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts } = require("./sheetLogger");
+// ?src= values on the Grab thank you card QR codes (new customer card, return customer card). Must match CARD_SOURCES in public/app.js.
+const GRAB_CARD_SOURCES = ["gnew", "gback"];
 const {
   getCustomer,
   getCustomerByLineId,
@@ -3334,6 +3336,8 @@ async function completeLiffOrder(ctx) {
     lastLng: order.location && Number.isFinite(order.location.lng) ? order.location.lng : null,
     lastAddress: order.addressText ? String(order.addressText).slice(0, 300) : "",
     lastNote: order.addressNote ? String(order.addressNote).slice(0, 200) : "",
+    // Grab thank you card QR codes (?src=gnew or ?src=gback): the first direct order counts as 2 of 5.
+    startBonus: GRAB_CARD_SOURCES.includes(String(order.src || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 12)) ? 1 : 0,
   });
 
   if (loyaltyResult && loyaltyResult.resetHappened && target) {

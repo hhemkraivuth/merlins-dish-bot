@@ -256,7 +256,9 @@ function tierEligibility(orderCount) {
 // count after this order (post-reset if a redemption happened), or
 // null if sheets isn't configured / the write failed.
 // Only the cells it owns are written, so any other columns on the tab are left alone.
-async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, lastLat, lastLng, lastAddress, lastNote }) {
+// startBonus: extra orders credited ONLY on a customer's very first order (a phone number not yet in the Customers tab),
+// used for the Grab thank you card QR codes. It is ignored for anyone already on the ladder.
+async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, lastLat, lastLng, lastAddress, lastNote, startBonus }) {
   const phone = normalisePhone(rawPhone);
   const client = getClient();
   if (!client || !phone) return null;
@@ -268,6 +270,10 @@ async function recordOrder({ phone: rawPhone, name, lineUserId, redeemedTier, la
 
     const priorCount = existing && existing.found ? existing.orderCount : 0;
     let newOrderCount = priorCount + 1;
+    const isFirstEver = !existing || !existing.found;
+    if (isFirstEver && Number.isInteger(startBonus) && startBonus > 0 && startBonus <= 2) {
+      newOrderCount += startBonus; // first direct order from a Grab card counts double (1 + 1 = 2 of 5)
+    }
     if (redeemedTier === TIER_LOW || redeemedTier === TIER_HIGH) {
       newOrderCount = 0; // reset the ladder on any redemption
     }

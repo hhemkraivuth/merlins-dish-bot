@@ -159,7 +159,14 @@ async function loadSavedProfile() {
     }
     const token = liff.getAccessToken();
     if (!token) { showGreeting(); return; }
-    const res = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+    // Where the customer came from (e.g. ?src=ig on the Instagram link). LIFF may hand the query over inside liff.state.
+    let src = "";
+    try {
+      const q = new URLSearchParams(location.search);
+      src = q.get("src") || "";
+      if (!src && q.get("liff.state")) src = new URLSearchParams(String(q.get("liff.state")).replace(/^\//, "").replace(/^\?/, "")).get("src") || "";
+    } catch (e) { /* no source, fine */ }
+    const res = await fetch(`/api/me${src ? `?src=${encodeURIComponent(src)}` : ""}`, { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     if (data && data.known) {
       SAVED_PROFILE = {
@@ -419,8 +426,9 @@ function buildItemCard(dish) {
   let stockNote = "";
   if (!dish.available) {
     stockNote = `<p class="sold-out-note">Sold out today</p>`;
-  } else if (dish.remaining != null && dish.remaining <= 5) {
-    stockNote = `<p class="stock-note">Only ${dish.remaining} left</p>`;
+  } else if (dish.remaining === 1) {
+    // Only the very last portion is announced: customers should not see how much stock there is until it is nearly gone.
+    stockNote = `<p class="stock-note">Only 1 left</p>`;
   }
 
   const priceTag = (basePrice) => {

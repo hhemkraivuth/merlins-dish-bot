@@ -2886,14 +2886,14 @@ app.get("/api/customer-lookup", async (req, res) => {
 // with the trigger "order app open". One row per customer per 10 minutes, so reloads and back-and-forth do not inflate it.
 const APP_OPEN_GAP_MS = 10 * 60 * 1000;
 const lastAppOpen = new Map();
-function logAppOpen(userId, displayName) {
+function logAppOpen(userId, displayName, src) {
   const now = Date.now();
   const last = lastAppOpen.get(userId) || 0;
   if (now - last < APP_OPEN_GAP_MS) return;
   lastAppOpen.set(userId, now);
   if (lastAppOpen.size > 5000) { for (const [k, t] of lastAppOpen) { if (now - t > APP_OPEN_GAP_MS) lastAppOpen.delete(k); } }
   // Fire and forget: logging must never slow down or break the customer's page.
-  Promise.resolve(logMenuTap({ userId, displayName: displayName || "", trigger: "order app open" })).catch((err) => console.error("logAppOpen failed:", err.message));
+  Promise.resolve(logMenuTap({ userId, displayName: displayName || "", trigger: src ? `order app open (${src})` : "order app open" })).catch((err) => console.error("logAppOpen failed:", err.message));
 }
 
 // Personalisation: who is this LINE user, and what did they last tell us?
@@ -2911,7 +2911,8 @@ app.get("/api/me", async (req, res) => {
     });
     const { userId, displayName } = profileRes.data || {};
     if (!userId) return res.json({ known: false });
-    logAppOpen(userId, displayName);
+    const src = String(req.query.src || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 12);
+    logAppOpen(userId, displayName, src);
     const saved = await getCustomerByLineId(userId);
     res.set("Cache-Control", "no-store");
     res.json({

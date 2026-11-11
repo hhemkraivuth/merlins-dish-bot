@@ -261,6 +261,17 @@ async function init() {
     console.error("LIFF init failed (continuing anyway for browser testing):", err);
   }
 
+  // Not signed in to LINE (e.g. opened from Instagram): count the visit anonymously, once per browser session.
+  if (!LINE_USER_ID) {
+    try {
+      if (!sessionStorage.getItem("openLogged")) {
+        sessionStorage.setItem("openLogged", "1");
+        const src = new URLSearchParams(location.search).get("src") || "";
+        fetch(`/api/app-open${src ? `?src=${encodeURIComponent(src)}` : ""}`, { method: "POST", keepalive: true }).catch(() => {});
+      }
+    } catch (e) { /* storage blocked, skip */ }
+  }
+
   try {
     const [menuRes, shopRes] = await Promise.all([
       fetch("/api/menu").then((r) => r.json()),

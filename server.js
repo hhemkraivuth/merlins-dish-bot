@@ -2896,6 +2896,20 @@ function logAppOpen(userId, displayName, src) {
   Promise.resolve(logMenuTap({ userId, displayName: displayName || "", trigger: src ? `order app open (${src})` : "order app open" })).catch((err) => console.error("logAppOpen failed:", err.message));
 }
 
+// Visitors who open the plain web link (e.g. from Instagram) are not signed in to LINE, so there is no name to log.
+// The page pings here once per visit so they still show up in "Menu Taps" as "order app open (ig)" and so on.
+const lastWebOpen = new Map();
+app.post("/api/app-open", (req, res) => {
+  res.status(204).end();
+  const src = String(req.query.src || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 12) || "web";
+  const key = `${req.ip}|${src}`;
+  const now = Date.now();
+  if (now - (lastWebOpen.get(key) || 0) < APP_OPEN_GAP_MS) return;
+  lastWebOpen.set(key, now);
+  if (lastWebOpen.size > 5000) { for (const [k, t] of lastWebOpen) { if (now - t > APP_OPEN_GAP_MS) lastWebOpen.delete(k); } }
+  Promise.resolve(logMenuTap({ userId: "(not signed in)", displayName: "Web visitor", trigger: `order app open (${src})` })).catch((err) => console.error("app-open log failed:", err.message));
+});
+
 // Personalisation: who is this LINE user, and what did they last tell us?
 // The browser sends its LIFF access token; we ask LINE who that token belongs
 // to, so a customer can only ever read their OWN saved details (a bare

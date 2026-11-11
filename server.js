@@ -2881,6 +2881,21 @@ app.get("/api/customer-lookup", async (req, res) => {
   });
 });
 
+// Every time the order app itself opens (however the customer got there: the rich menu link, the Order Now card, an old
+// bookmark) the app asks /api/me who this is, so that is where an open is counted. It goes in the same "Menu Taps" tab
+// with the trigger "order app open". One row per customer per 10 minutes, so reloads and back-and-forth do not inflate it.
+const APP_OPEN_GAP_MS = 10 * 60 * 1000;
+const lastAppOpen = new Map();
+function logAppOpen(userId, displayName) {
+  const now = Date.now();
+  const last = lastAppOpen.get(userId) || 0;
+  if (now - last < APP_OPEN_GAP_MS) return;
+  lastAppOpen.set(userId, now);
+  if (lastAppOpen.size > 5000) { for (const [k, t] of lastAppOpen) { if (now - t > APP_OPEN_GAP_MS) lastAppOpen.delete(k); } }
+  // Fire and forget: logging must never slow down or break the customer's page.
+  Promise.resolve(logMenuTap({ userId, displayName: displayName || "", trigger: "order app open" })).catch((err) => console.error("logAppOpen failed:", err.message));
+}
+
 // Personalisation: who is this LINE user, and what did they last tell us?
 // The browser sends its LIFF access token; we ask LINE who that token belongs
 // to, so a customer can only ever read their OWN saved details (a bare
@@ -2896,6 +2911,7 @@ app.get("/api/me", async (req, res) => {
     });
     const { userId, displayName } = profileRes.data || {};
     if (!userId) return res.json({ known: false });
+    logAppOpen(userId, displayName);
     const saved = await getCustomerByLineId(userId);
     res.set("Cache-Control", "no-store");
     res.json({
@@ -3259,10 +3275,13 @@ async function completeLiffOrder(ctx) {
       const head = manual
         ? `✅ ORDER PLACED #${orderNo} for ${order.name}\n(you checked the slip, customer told)`
         : `🧾 ${isScheduled ? "NEW PRE-ORDER" : "NEW ORDER"} #${orderNo} for ${order.name}`;
+      // Timing sits right above ITEMS so one glance says whether to start cooking now or wait.
+      const timingHeadline = isScheduled ? `📅 TIMING: ${timingLine}` : "⏰ TIMING: RIGHT AWAY";
       const text = [
         head,
+        timingHeadline,
         `ITEMS\n${itemRows(lines)}`,
-        `TOTAL ฿${total}\nFood ฿${foodTotal}\n${totalDiscount > 0 ? `Discount -฿${totalDiscount}${promoLabelsUsed.length ? ` (${promoLabelsUsed.join(", ")})` : ""}\n` : ""}Delivery ${deliveryLine}\nTiming: ${timingLine}`,
+        `TOTAL ฿${total}\nFood ฿${foodTotal}\n${totalDiscount > 0 ? `Discount -฿${totalDiscount}${promoLabelsUsed.length ? ` (${promoLabelsUsed.join(", ")})` : ""}\n` : ""}Delivery ${deliveryLine}`,
         `DELIVER TO\n${order.name}\n${order.phone}\n${/^https?:/.test(fullAddress) ? (order.addressText || "(pin only)") : fullAddress}\nRider note: ${order.addressNote || "none"}${mapsLink ? `\nMap: ${mapsLink}` : ""}`,
         manual
           ? `PAYMENT\nPaid via: ${order.paymentMethod}\nSlip checked by you`

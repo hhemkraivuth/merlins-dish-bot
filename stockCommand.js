@@ -39,7 +39,10 @@ function splitSegments(body, { MENU, resolveItemId, resolveVariantId }) {
         continue;
       }
     }
-    segments.push({ word: first, rest: words.slice(1).join(" ") });
+    // "sr6" or "tpb3" typed with no space is the dish word "sr" / "tpb" followed by its number.
+    const glued = /^([a-z&]+)(\d.*)$/i.exec(first);
+    if (glued) segments.push({ word: glued[1], rest: [glued[2], ...words.slice(1)].join(" ") });
+    else segments.push({ word: first, rest: words.slice(1).join(" ") });
   }
   return segments;
 }

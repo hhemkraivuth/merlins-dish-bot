@@ -38,6 +38,18 @@ function mount(app, ctx) {
 
   router.get("/state", wrap(async (req, res) => res.json(ctx.state())));
 
+  // Stock counts, the same words as the "left" group command: { text: "tpb 3, bolo 8, noir 0" } (a leading "left" is fine).
+  // Runs the very same code as the LINE group command (stockCommand.js), so a count typed in BOH and one typed in LINE behave identically.
+  router.post("/stock", wrap(async (req, res) => {
+    let text = String((req.body || {}).text || "").trim();
+    const lead = /^(left|setstock)\b[\s:]*([\s\S]*)$/i.exec(text);
+    if (lead) text = lead[2].trim();
+    if (!text) return bad(res, "Type the dishes and counts, for example: tpb 3, bolo 8, noir 0");
+    const message = ctx.runStock(text);
+    const saved = await ctx.persist();
+    res.json({ ok: true, message, saved, state: ctx.state() });
+  }));
+
   router.post("/announcement", wrap(async (req, res) => {
     const b = req.body || {};
     const headline = String(b.headline || "").trim();

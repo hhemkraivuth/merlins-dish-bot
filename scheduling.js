@@ -25,6 +25,11 @@ let dateBlocker = () => false;
 function setDateBlocker(fn) {
   dateBlocker = typeof fn === "function" ? fn : () => false;
 }
+// Blocks part of a day (e.g. 11:00 to 14:00). fn(dateStr, "HH:mm") returns true for a slot that can't be booked.
+let slotBlocker = () => false;
+function setSlotBlocker(fn) {
+  slotBlocker = typeof fn === "function" ? fn : () => false;
+}
 function isDateBlocked(m) {
   return !!dateBlocker(m.tz(TZ).format("YYYY-MM-DD"));
 }
@@ -70,7 +75,8 @@ function slotsForDate(dateM, now = bangkokNow()) {
   const today = now.tz(TZ).startOf("day");
   const isToday = date.isSame(today, "day");
 
-  const slots = allDailySlots();
+  const dateStr = date.format("YYYY-MM-DD");
+  const slots = allDailySlots().filter((hhmm) => !slotBlocker(dateStr, hhmm));
   if (!isToday) return slots;
 
   const cutoff = now.add(MIN_LEAD_MINUTES, "minute");
@@ -113,5 +119,6 @@ module.exports = {
   slotsForDate,
   validateSchedule,
   setDateBlocker,
+  setSlotBlocker,
   isDateBlocked,
 };

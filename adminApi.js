@@ -84,7 +84,17 @@ function mount(app, ctx) {
       if (s.close <= s.open) return bad(res, "Closing time must be after opening time");
       special.push({ date: s.date, open: s.open, close: s.close });
     }
-    ctx.setHours({ override, closures, special });
+    // blocks: [{date, start, end}] part-day blocks for scheduled orders. Left out = keep what is saved.
+    let blocks;
+    if (b.blocks !== undefined) {
+      blocks = [];
+      for (const k of b.blocks || []) {
+        if (!DATE.test(String(k.date)) || !TIME.test(String(k.start)) || !TIME.test(String(k.end))) return bad(res, "A block needs a date and times like 11:00");
+        if (k.end < k.start) return bad(res, "A block ends before it starts");
+        blocks.push({ date: k.date, start: k.start, end: k.end });
+      }
+    }
+    ctx.setHours({ override, closures, special, ...(blocks ? { blocks } : {}) });
     await done(res);
   }));
 

@@ -77,6 +77,7 @@ const {
   slotsForDate,
   validateSchedule,
   setDateBlocker,
+  setSlotBlocker,
   isDateBlocked,
 } = require("./scheduling");
 const { markOrderForReminderJob, startReminderCron } = require("./scheduled-reminder");
@@ -235,6 +236,16 @@ let manualOpenOverride = null;
 // need to remember to text "open" afterwards, it clears itself once the
 // date range has passed. Resets on restart, same as manualOpenOverride.
 let scheduledClosures = [];
+
+// Part-day blocks for scheduled orders, set with "block 13/11 11:00-14:00" in the private group or from the back
+// office Index page: { date: "YYYY-MM-DD", start: "HH:MM", end: "HH:MM" }. Every 30 minute slot from start to end,
+// both included, can't be booked. Right away orders are not affected. Past dates are dropped when the list is read.
+let slotBlocks = [];
+function liveSlotBlocks() {
+  const todayStr = bangkokDateStr(bangkokNow());
+  slotBlocks = slotBlocks.filter((b) => b.date >= todayStr);
+  return slotBlocks;
+}
 
 // One-off opening windows for a single date, for closing early or opening late: { date: "YYYY-MM-DD", open: "HH:MM", close: "HH:MM" }.
 // On that date the window replaces the normal hours (no lunch gap). Set from the back office web app.
@@ -413,6 +424,34 @@ setDateBlocker((dateStr) =>
   scheduledClosures.some((r) => dateStr >= r.start && dateStr <= r.end) ||
   (manualOpenOverride === false && dateStr === bangkokDateStr(bangkokNow()))
 );
+
+setSlotBlocker((dateStr, hhmm) => slotBlocks.some((b) => b.date === dateStr && hhmm >= b.start && hhmm <= b.end));
+
+// "11", "11.30", "11:30" -> "11:00", "11:30". Returns null if it isn't a time.
+function parseBlockTime(str) {
+  const m = String(str).trim().match(/^(\d{1,2})(?:[:.](\d{2}))?$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+// "13/11 11:00-14:00" -> { date, start, end } or null.
+function parseBlockText(rest) {
+  const m = String(rest).trim().match(/^(\S+)\s+(\S+?)\s*-\s*(\S+)$/);
+  if (!m) return null;
+  const range = parseCloseDateRange(m[1]);
+  const start = parseBlockTime(m[2]);
+  const end = parseBlockTime(m[3]);
+  if (!range || range.start !== range.end || !start || !end || end < start) return null;
+  return { date: range.start, start, end };
+}
+
+function formatBlock(b) {
+  const [y, mo, d] = b.date.split("-");
+  return `${d}/${mo}/${y} ${b.start}-${b.end}`;
+}
 
 function isShopOpen() {
   if (manualOpenOverride !== null) return manualOpenOverride;
@@ -1853,6 +1892,42 @@ async function handleAdminCommand(replyToken, text) {
     });
     return true;
   }
+  if (lower.startsWith("block ")) {
+    const b = parseBlockText(text.trim().slice(6));
+    if (!b) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `Couldn't read that. Use "block D/M start-end", for example "block 13/11 11:00-14:00". Text "unblock 13/11" to clear the day.`,
+      });
+      return true;
+    }
+    slotBlocks = slotBlocks.filter((x) => !(x.date === b.date && x.start === b.start && x.end === b.end));
+    slotBlocks.push(b);
+    const open = slotsForDate(dayjs.tz(b.date, SCHEDULE_TZ));
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: `Blocked ${formatBlock(b)} for scheduled orders (both times included). Customers can't book those slots, right away orders are not affected. ${open.length ? `Still bookable that day: ${open[0]} to ${open[open.length - 1]}.` : "Nothing is bookable that day now."} Text "unblock ${b.date.slice(8)}/${b.date.slice(5, 7)}" to undo.`,
+    });
+    return true;
+  }
+  if (lower.startsWith("unblock ")) {
+    const rest = text.trim().slice(8).trim();
+    const parts = rest.split(/\s+/);
+    const range = parseCloseDateRange(parts[0]);
+    if (!range) {
+      await client.replyMessage(replyToken, { type: "text", text: `Couldn't read that date. Use "unblock D/M", for example "unblock 13/11".` });
+      return true;
+    }
+    const before = slotBlocks.length;
+    const only = parts.length > 1 ? parseBlockText(rest) : null;
+    slotBlocks = slotBlocks.filter((x) => !(x.date === range.start && (!only || (x.start === only.start && x.end === only.end))));
+    const removed = before - slotBlocks.length;
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: removed ? `Cleared ${removed} block${removed === 1 ? "" : "s"} on ${formatDateRangeForDisplay(range)}.` : `There were no blocks on ${formatDateRangeForDisplay(range)}.`,
+    });
+    return true;
+  }
   if (lower === "open" || lower === "open today" || lower === "open now") {
     manualOpenOverride = true;
     await client.replyMessage(replyToken, {
@@ -1879,7 +1954,7 @@ async function handleAdminCommand(replyToken, text) {
         : scheduledClosures.map((r) => formatDateRangeForDisplay(r)).join(", ");
     await client.replyMessage(replyToken, {
       type: "text",
-      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nScheduled closures: ${closuresText}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
+      text: `Currently: ${isShopOpen() ? "OPEN" : "CLOSED"}\nOverride: ${override}\nScheduled closures: ${closuresText}\nBlocked slots: ${liveSlotBlocks().length ? liveSlotBlocks().map(formatBlock).join(", ") : "none"}\nNormal hours: Mon-Fri, ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00`,
     });
     return true;
   }
@@ -3743,7 +3818,7 @@ function shopSnapshot() {
     announcement: getAnnouncement(),
     storewide: getStorewidePromo(),
     itemPromos: getItemPromos(),
-    hours: { override: manualOpenOverride, closures: scheduledClosures, special: specialHours },
+    hours: { override: manualOpenOverride, closures: scheduledClosures, special: specialHours, blocks: liveSlotBlocks() },
     tiers: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
   };
 }
@@ -3761,6 +3836,8 @@ function applyHours(h) {
   manualOpenOverride = h.override === true ? true : h.override === false ? false : null;
   scheduledClosures = Array.isArray(h.closures) ? h.closures.filter((c) => c && c.start && c.end) : [];
   specialHours = Array.isArray(h.special) ? h.special.filter((x) => x && x.date && x.open && x.close) : [];
+  // A caller that doesn't mention blocks (an older back office) leaves them as they are.
+  if (Array.isArray(h.blocks)) slotBlocks = h.blocks.filter((x) => x && x.date && x.start && x.end);
 }
 
 function applyShopSettings(saved) {
@@ -3805,7 +3882,7 @@ try {
     setTiers: (t) => applyTiers(t),
     state: () => ({
       now: bangkokNow().toISOString(),
-      open: { isOpen: isShopOpen(), message: isShopOpen() ? null : closedMessage(), override: manualOpenOverride, closures: scheduledClosures, special: specialHours, normalHours: `Mon-Fri ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00` },
+      open: { isOpen: isShopOpen(), message: isShopOpen() ? null : closedMessage(), override: manualOpenOverride, closures: scheduledClosures, special: specialHours, blocks: liveSlotBlocks(), normalHours: `Mon-Fri ${OPEN_HOUR}:00-${LUNCH_CLOSE_HOUR}:${String(LUNCH_CLOSE_MINUTE).padStart(2, "0")} and ${DINNER_OPEN_HOUR}:00-${CLOSE_HOUR}:00` },
       announcement: { ...getAnnouncement(), live: isAnnouncementLiveToday() },
       storewidePromo: getStorewidePromo(),
       itemPromos: getItemPromos(),

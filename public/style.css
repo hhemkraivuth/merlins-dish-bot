@@ -17,17 +17,25 @@
 }
 
 :root {
-  /* Colors */
-  --cream: #FBF1E1;
-  --cream-deep: #F3E4CB;
-  --ink: #3A2A1E;
-  --ink-soft: #7A6753;
-  --red: #E8302A;
-  --red-deep: #C21F1B;
-  --gold: #D9A441;
-  --line: #E9D8BC;
+  /* Colors: Merlin's Dish brand, same palette as the back office (BOH).
+     Primary: red, blue, white. Secondary: yellow, teal, cream. Navy is the text colour. */
+  --red: #E63D23;
+  --red-deep: #BF2F18;
+  --blue: #294BD4;
+  --yellow: #F8CC1A;
+  --teal: #63CBC6;
+  --teal-soft: #DDF4F1;
+  --navy: #1B2559;
+  --amber-text: #6B4A00;
+  --cream: #FFF7EE;
+  --cream-deep: #FFEEDE;
+  --ink: #1B2559;
+  --ink-soft: #6C6A7A;
+  --gold: #F8CC1A;
+  --line: #F3DCC8;
+  --line-strong: #E6C9AE;
   --card: #FFFFFF;
-  --success: #3F8F5F;
+  --success: #2E8B6E;
 
   /* Fonts -- double check the licence on whichever site you download
      Bryndan Write from before using it commercially; sources disagree
@@ -164,8 +172,8 @@ button, input, textarea, select {
   white-space: nowrap;
 }
 .cat-tab.active {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--blue);
+  border-color: var(--blue);
   color: #fff;
 }
 
@@ -212,7 +220,7 @@ button, input, textarea, select {
 .item-body h3 { font-size: 15px; line-height: 1.25; }
 .item-description { color: var(--ink-soft); font-size: 12px; line-height: 1.4; margin: 2px 0 6px; }
 .item-price { color: var(--red-deep); font-weight: 800; font-size: 14px; margin: 2px 0 8px; }
-.stock-note { font-size: 12px; color: var(--gold); font-weight: 700; margin: -4px 0 6px; }
+.stock-note { font-size: 12px; color: var(--red); font-weight: 700; margin: -4px 0 6px; }
 .sold-out-note { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
 
 .stepper {
@@ -294,7 +302,7 @@ button, input, textarea, select {
   cursor: pointer;
 }
 .btn-primary { background: var(--red); color: #fff; }
-.btn-primary:disabled { background: #E8B7B5; cursor: not-allowed; }
+.btn-primary:disabled { background: #F4B9AE; cursor: not-allowed; }
 .btn-secondary { background: var(--card); color: var(--ink); border: 1.5px solid var(--line); }
 .btn-secondary:disabled { color: var(--ink-soft); cursor: not-allowed; opacity: 0.6; }
 .btn-block { width: 100%; }
@@ -396,8 +404,8 @@ button, input, textarea, select {
   margin: 16px 16px 0;
   padding: 14px;
   border-radius: var(--radius-sm);
-  background: #FFF6E0;
-  border: 1.5px solid #F0C86B;
+  background: #FFF4C9;
+  border: 1.5px solid var(--yellow);
 }
 .reward-progress-text {
   font-weight: 800;
@@ -459,7 +467,7 @@ button, input, textarea, select {
 .dn-list { list-style: none; margin: 0; padding: 0; }
 .dn-list li {
   display: flex; justify-content: space-between; gap: 12px;
-  padding: 5px 0; border-top: 1px solid rgba(217, 164, 65, 0.4);
+  padding: 5px 0; border-top: 1px solid rgba(27, 37, 89, 0.12);
   font-weight: 600;
 }
 .dn-list li strong { font-weight: 800; text-align: right; }
@@ -489,7 +497,7 @@ button, input, textarea, select {
 }
 .location-result.free { border-color: var(--success); color: var(--success); }
 .location-result.flat-fee { border-color: var(--success); color: var(--success); }
-.location-result.manual { border-color: var(--gold); color: #8a6314; }
+.location-result.manual { border-color: var(--yellow); color: var(--amber-text); }
 
 .manual-address-toggle { margin-top: 10px; font-size: 13px; }
 .manual-address-toggle summary { cursor: pointer; color: var(--ink-soft); font-weight: 700; }
@@ -585,8 +593,8 @@ button, input, textarea, select {
 }
 
 @keyframes flash-border {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 48, 42, 0); }
-  25%, 75% { box-shadow: 0 0 0 4px rgba(232, 48, 42, 0.55); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 61, 35, 0); }
+  25%, 75% { box-shadow: 0 0 0 4px rgba(230, 61, 35, 0.55); }
 }
 .flash-invalid {
   animation: flash-border 0.5s ease-in-out 2;
@@ -710,8 +718,8 @@ button, input, textarea, select {
 }
 .item-promo-badge {
   display: inline-block;
-  background: var(--success);
-  color: #fff;
+  background: var(--teal);
+  color: var(--navy);
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
@@ -757,7 +765,7 @@ button, input, textarea, select {
 .item-photo .item-img { width: 112px; height: 112px; border-radius: 10px; object-fit: cover; }
 .item-body { min-height: 112px; display: flex; flex-direction: column; padding-right: 44px; }
 .item-body h3 { font-size: 16px; font-weight: 600; line-height: 1.2; }
-.item-badge { margin: 0 0 1px; font-size: 11px; font-weight: 700; color: var(--success); line-height: 1.2; }
+.item-badge { margin: 0 0 1px; font-size: 11px; font-weight: 700; color: var(--blue); line-height: 1.2; }
 .item-description { margin: 2px 0 0; font-size: 12.5px; line-height: 1.35; }
 .item-description.clamped {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -766,7 +774,7 @@ button, input, textarea, select {
 .item-foot { margin-top: 4px; display: flex; align-items: baseline; gap: 10px; }
 .see-more-btn {
   background: none; border: none; padding: 0; margin: 0;
-  color: var(--ink-soft); font-weight: 600; font-size: 12px; cursor: pointer; text-decoration: underline;
+  color: var(--blue); font-weight: 600; font-size: 12px; cursor: pointer; text-decoration: underline;
 }
 .item-price { color: var(--ink); font-weight: 600; font-size: 15px; margin: 0; }
 .item-control { position: absolute; right: 0; bottom: 10px; }
@@ -803,7 +811,7 @@ button, input, textarea, select {
 /* option sheet (second step for size / pasta) */
 .sheet-overlay {
   position: fixed; inset: 0; z-index: 50;
-  background: rgba(40, 25, 15, 0.5);
+  background: rgba(27, 37, 89, 0.5);
   display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet-panel {
@@ -842,7 +850,7 @@ button, input, textarea, select {
   background: var(--red); color: #fff; font-family: inherit;
   font-size: 16px; font-weight: 800; cursor: pointer;
 }
-.sheet-add-btn:disabled { background: #F2A6A3; cursor: not-allowed; }
+.sheet-add-btn:disabled { background: #F4B9AE; cursor: not-allowed; }
 
 /* compact header (Grab-like): less height above the first dish */
 .topbar { padding: 10px 16px 12px; border-radius: 0 0 18px 18px; }
@@ -921,7 +929,7 @@ button, input, textarea, select {
 /* ---- "your last address" notice, directly above the map ---- */
 .saved-address-hint {
   display: flex; flex-direction: column; gap: 2px;
-  background: #EAF5EE; border: 1.5px solid #BFE0CA; border-left: 5px solid var(--success);
+  background: var(--teal-soft); border: 1.5px solid var(--teal); border-left: 5px solid var(--teal);
   border-radius: 12px; padding: 10px 12px; margin: 0 0 8px;
 }
 .saved-address-hint .sa-title { font-size: 16px; font-weight: 800; color: var(--ink); }
@@ -939,7 +947,7 @@ button, input, textarea, select {
 .addons {
   margin: 10px 16px 0;
   padding-top: 10px;
-  border-top: 0.5px solid #D9C49B;
+  border-top: 0.5px solid var(--line-strong);
 }
 .addons-title {
   font-size: 15px;
@@ -958,7 +966,7 @@ button, input, textarea, select {
 .addon {
   flex: 0 0 auto;
   padding: 0 12px;
-  border-left: 0.5px solid #D9C49B;
+  border-left: 0.5px solid var(--line-strong);
 }
 .addon:first-child { padding-left: 0; border-left: none; }
 .addon:last-child { padding-right: 20px; }
@@ -1005,7 +1013,7 @@ button, input, textarea, select {
 .cart-contact {
   margin: auto 16px 0;
   padding: 14px 0 10px;
-  border-top: 0.5px solid #D9C49B;
+  border-top: 0.5px solid var(--line-strong);
 }
 #cart-screen .cart-contact .field-group { padding: 0; margin-top: 0; }
 #cart-screen .cart-contact .field-group + .field-group { margin-top: 10px; }

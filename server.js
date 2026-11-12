@@ -21,6 +21,7 @@
 //   "instock <item_id>"     -> brings it back with no stock limit
 //   "keywords"              -> lists every short keyword for dishes, sizes and pasta
 //   "left <item> <n>"       -> same as setstock, e.g. "left chix 5" ("left chix 0" = sold out)
+//   "left tpb 3, bolo 8, noir 0" -> several dishes in one message (commas or one per line), 0 = sold out
 //   "setstock <item_id> <n>" -> sets a remaining-count limit for that item;
 //                                the bot won't let customers order more than
 //                                this, and it auto-decreases as orders come in
@@ -1802,6 +1803,12 @@ async function handleMenuImage(event, userId) {
   }
 }
 
+const { createStockCommand, stockBody } = require("./stockCommand");
+const stockCommand = createStockCommand({
+  MENU, SIZE_OPTIONS, PASTA_OPTIONS, resolveItemId, resolveVariantId, variantKey,
+  stockCount, soldOut, variantStockCount, soldOutVariants,
+});
+
 async function handleAdminCommand(replyToken, text) {
   // "Instock dbs 9r 4l" / "in stock dbs 9r 4l" is a count (what is left), not "bring it back": the dish word
   // followed by numbers is read exactly like "setstock dbs 9r 4l". "instock rws l" (no numbers) still means back in stock.
@@ -2075,102 +2082,10 @@ async function handleAdminCommand(replyToken, text) {
     await client.replyMessage(replyToken, { type: "text", text: `Stock status:\n${body}` });
     return true;
   }
-  if (lower.startsWith("setstock ") || lower.startsWith("left ")) {
-    // Two forms, same shape as "soldout":
-    //  1. Whole item: "setstock rws 10" -- sets the item's overall count.
-    //  2. One size/pasta variant: "setstock rws l 2" -- sets the count
-    //     for just that variant. Hitting 0 auto-marks that variant sold
-    //     out (soldOutVariants), same as whole-item setstock does for
-    //     soldOut; going above 0 again clears it. All keywords resolved
-    //     through aliases.js.
-    const parts = text.trim().split(/\s+/);
-    const typedItem = parts[1];
-    const itemId = resolveItemId(typedItem, MENU);
-    const dish = itemId ? MENU.find((d) => d.id === itemId) : null;
-    if (!dish) {
-      await client.replyMessage(replyToken, { type: "text", text: `Unknown item id "${typedItem}". Text "stock" to see valid ids.` });
-      return true;
-    }
-
-    // Everything after the item keyword. Accepts any of:
-    //   "setstock rws 4"                    whole dish
-    //   "setstock rws large 4"              one size or pasta
-    //   "setstock rws l4 r7" or "4l 7r"     several sizes in one message (number first or last)
-    //   "setstock rws large 4 regular 7"    same, with spaces
-    //   "setstock bolo luma 3 riga 5"       several pastas
-    const rest = parts.slice(2).join(" ").toLowerCase();
-
-    // Whole dish: just a number.
-    if (/^-?\d+$/.test(rest)) {
-      const n = Math.max(0, parseInt(rest, 10));
-      stockCount.set(dish.id, n);
-      if (n <= 0) soldOut.add(dish.id);
-      else soldOut.delete(dish.id);
-      await client.replyMessage(replyToken, { type: "text", text: `"${dish.id}" stock set to ${n}.` });
-      return true;
-    }
-
-    // One or more "<size or pasta> <number>" pairs, spaces optional.
-    const pairRe = /([a-z]+)\s*[:=]?\s*(-?\d+)|(-?\d+)\s*([a-z]+)/g;
-    const pairs = [...rest.matchAll(pairRe)];
-    const leftover = rest.replace(pairRe, "").replace(/[\s,]+/g, "");
-    const usage = dish.requiresSize
-      ? `"setstock ${dish.id} l4 r7" (sizes) or "setstock ${dish.id} 10" (whole dish)`
-      : dish.requiresPasta
-      ? `"setstock ${dish.id} luma 3 riga 5" (pastas) or "setstock ${dish.id} 10" (whole dish)`
-      : `"setstock ${dish.id} 10"`;
-    if (!pairs.length || leftover) {
-      await client.replyMessage(replyToken, { type: "text", text: `I couldn't read that. Try ${usage}.` });
-      return true;
-    }
-    if (!dish.requiresSize && !dish.requiresPasta) {
-      await client.replyMessage(replyToken, {
-        type: "text",
-        text: `"${dish.id}" doesn't have separate sizes or pasta choices. Use "setstock ${dish.id} 10" to set the whole dish.`,
-      });
-      return true;
-    }
-
-    // Resolve every pair first, so a typo in one never leaves the others
-    // half applied.
-    const variantList = dish.requiresSize ? SIZE_OPTIONS : PASTA_OPTIONS;
-    const resolved = [];
-    const unknown = [];
-    for (const m of pairs) {
-      // Either order works: "l4" or "4l", "large 4" or "4 large".
-      const word = m[1] || m[4];
-      const num = m[2] || m[3];
-      const variantId = resolveVariantId(dish, word);
-      const validVariant = variantId ? variantList.find((v) => v.id === variantId) : null;
-      if (!validVariant) unknown.push(word);
-      else resolved.push({ variant: validVariant, n: Math.max(0, parseInt(num, 10)) });
-    }
-    if (unknown.length) {
-      await client.replyMessage(replyToken, {
-        type: "text",
-        text: `"${dish.id}" doesn't have a choice called ${unknown.map((u) => `"${u}"`).join(", ")}. Valid choices: ${variantList.map((v) => v.id).join(", ")}. Nothing was changed.`,
-      });
-      return true;
-    }
-
-    let clearedWholeDish = false;
-    for (const { variant, n } of resolved) {
-      const key = variantKey(dish.id, variant.id);
-      variantStockCount.set(key, n);
-      if (n <= 0) soldOutVariants.add(key);
-      else soldOutVariants.delete(key);
-    }
-    // Setting stock above zero for any size/pasta means the dish is on sale
-    // again, so lift an earlier whole-dish "sold out" mark or zero count.
-    if (resolved.some((r) => r.n > 0)) {
-      if (soldOut.has(dish.id)) { soldOut.delete(dish.id); clearedWholeDish = true; }
-      if (stockCount.has(dish.id) && stockCount.get(dish.id) <= 0) { stockCount.delete(dish.id); clearedWholeDish = true; }
-    }
-    const summary = resolved.map((r) => `${r.variant.name} ${r.n}`).join(", ");
-    await client.replyMessage(replyToken, {
-      type: "text",
-      text: `"${dish.name}" stock set: ${summary}.${clearedWholeDish ? " The earlier sold out mark on the whole dish was cleared." : ""}`,
-    });
+  // "left" / "setstock": one dish, sizes, pastas, or several dishes in one message (see stockCommand.js).
+  const stockBodyText = stockBody(text);
+  if (stockBodyText !== null) {
+    await client.replyMessage(replyToken, { type: "text", text: stockCommand.run(stockBodyText) });
     return true;
   }
   // ---- Promo commands ----

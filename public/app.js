@@ -266,6 +266,21 @@ function applySavedLocation() {
   return true;
 }
 
+// ---------- LINE OA links ----------
+// "Contact us" sits quietly at the foot of the menu, and a one line "Add us on LINE" sits under the confirmation
+// button. Both point at the Official Account (LINE_OA_URL on the server) and stay hidden until that is set. The
+// confirmation line is skipped for customers already inside LINE, since they reached the app through the OA.
+function setupLineLinks() {
+  const url = SHOP_INFO && SHOP_INFO.oaUrl;
+  if (!url) return;
+  document.getElementById("contact-us-btn").href = url;
+  document.getElementById("menu-foot").classList.remove("hidden");
+  if (!LINE_USER_ID) {
+    document.getElementById("line-news-btn").href = url;
+    document.getElementById("line-news").classList.remove("hidden");
+  }
+}
+
 // ---------- startup ----------
 
 async function init() {
@@ -302,6 +317,7 @@ async function init() {
     SIZE_OPTIONS = menuRes.sizeOptions;
     ANNOUNCEMENT = menuRes.announcement || null;
     SHOP_INFO = shopRes;
+    setupLineLinks();
     // Keep the delivery wording in the static page in step with the server's numbers.
     const dfNote = document.getElementById("free-delivery-note");
     if (dfNote) {

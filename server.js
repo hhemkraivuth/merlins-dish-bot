@@ -2717,6 +2717,7 @@ app.get("/api/shop-info", (req, res) => {
     paymentInfo: process.env.BUSINESS_PAYMENT_INFO || "our bank account",
     qrImageUrl: process.env.QR_IMAGE_URL || null,
     liffId: process.env.LIFF_ID || null,
+    oaUrl: process.env.LINE_OA_URL || null,
     isOpen: isShopOpen(),
     closedMessage: closedMessage(),
     freeDeliveryMin: FREE_DELIVERY_MIN,

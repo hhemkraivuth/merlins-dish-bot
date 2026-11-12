@@ -1017,3 +1017,16 @@ button, input, textarea, select {
 /* Every add on in the row is as tall as the tallest, so all prices and "+" buttons line up along the bottom */
 .addon { display: flex; }
 .addon-in { flex: 0 0 120px; }
+
+/* ---------- LINE OA links ---------- */
+.menu-foot {
+  position: relative;
+  margin-top: -96px;           /* sits inside the list's bottom padding so there is no big empty gap */
+  padding: 0 16px 110px;       /* keeps the last line clear of the cart bar */
+  background: var(--card);
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.menu-foot a, .line-news a { color: var(--ink); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.confirm-wrap .line-news { margin: 16px 0 0; font-size: 13px; color: var(--ink-soft); }

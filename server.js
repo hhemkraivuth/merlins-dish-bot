@@ -76,6 +76,8 @@ const {
   firstAvailableDate,
   slotsForDate,
   validateSchedule,
+  setDateBlocker,
+  isDateBlocked,
 } = require("./scheduling");
 const { markOrderForReminderJob, startReminderCron } = require("./scheduled-reminder");
 const menuStore = require("./menuStore");
@@ -403,6 +405,14 @@ function isScheduledClosureToday() {
   scheduledClosures = scheduledClosures.filter((r) => r.end >= todayStr);
   return scheduledClosures.some((r) => todayStr >= r.start && todayStr <= r.end);
 }
+
+// Scheduled orders follow the shop's closed dates: a date inside a scheduled
+// closure can't be booked, and neither can today when the shop is closed for
+// the day. Ordinary closed hours never block a scheduled order.
+setDateBlocker((dateStr) =>
+  scheduledClosures.some((r) => dateStr >= r.start && dateStr <= r.end) ||
+  (manualOpenOverride === false && dateStr === bangkokDateStr(bangkokNow()))
+);
 
 function isShopOpen() {
   if (manualOpenOverride !== null) return manualOpenOverride;
@@ -1105,7 +1115,7 @@ function buildScheduleDateQuickReply() {
       action: { type: "postback", label, data: `scheduledate:${d.format("YYYY-MM-DD")}` },
     });
     d = d.add(1, "day");
-    while (![1, 2, 3, 4, 5].includes(d.day())) d = d.add(1, "day");
+    while (![1, 2, 3, 4, 5].includes(d.day()) || isDateBlocked(d)) d = d.add(1, "day");
   }
   return cancelAndEditQuickReply(items);
 }
@@ -2635,6 +2645,7 @@ app.get("/api/shop-info", (req, res) => {
     oaUrl: process.env.LINE_OA_URL || null,
     isOpen: isShopOpen(),
     closedMessage: closedMessage(),
+    nextScheduleDate: firstAvailableDate().format("YYYY-MM-DD"),
     freeDeliveryMin: FREE_DELIVERY_MIN,
     smallOrderFee: SMALL_ORDER_FEE,
     zoneFees: ZONE_FEES,
@@ -2663,6 +2674,9 @@ app.get("/api/schedule-slots", (req, res) => {
   const day = d.day();
   if (day === 0 || day === 6) {
     return res.status(400).json({ error: "That date is a weekend. Please choose a weekday." });
+  }
+  if (isDateBlocked(d)) {
+    return res.status(400).json({ error: "Merlin's Dish is closed on that date. Please choose another day." });
   }
 
   const slots = slotsForDate(d);

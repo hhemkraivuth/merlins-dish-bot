@@ -1038,3 +1038,5 @@ button, input, textarea, select {
 }
 .menu-foot a, .line-news a { color: var(--ink); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .confirm-wrap .line-news { margin: 16px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+#closed-screen .btn { display: block; margin: 0 auto 10px; min-width: 220px; }

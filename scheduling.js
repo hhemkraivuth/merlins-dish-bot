@@ -19,6 +19,16 @@ const SCHEDULE_CLOSE_HOUR = 21; // 21:00 -- last pre-order slot
 const SLOT_MINUTES = 30;
 const MIN_LEAD_MINUTES = 120; // "at least 2 hours from now"
 
+// Shop closed dates (scheduled closures, or closed for today) block scheduled
+// orders too. server.js plugs its own check in here with setDateBlocker().
+let dateBlocker = () => false;
+function setDateBlocker(fn) {
+  dateBlocker = typeof fn === "function" ? fn : () => false;
+}
+function isDateBlocked(m) {
+  return !!dateBlocker(m.tz(TZ).format("YYYY-MM-DD"));
+}
+
 function bangkokNow() {
   return dayjs().tz(TZ);
 }
@@ -46,7 +56,7 @@ function firstAvailableDate(now = bangkokNow()) {
     return now.startOf("day");
   }
   let candidate = now.add(1, "day").startOf("day");
-  while (!isWeekday(candidate)) {
+  for (let i = 0; i < 400 && (!isWeekday(candidate) || isDateBlocked(candidate)); i++) {
     candidate = candidate.add(1, "day");
   }
   return candidate;
@@ -56,6 +66,7 @@ function firstAvailableDate(now = bangkokNow()) {
 // Future dates: every slot. Today: only slots >= now + MIN_LEAD_MINUTES.
 function slotsForDate(dateM, now = bangkokNow()) {
   const date = dateM.tz(TZ).startOf("day");
+  if (isDateBlocked(date)) return [];
   const today = now.tz(TZ).startOf("day");
   const isToday = date.isSame(today, "day");
 
@@ -76,6 +87,8 @@ function validateSchedule(dateStr, timeStr, now = bangkokNow()) {
   const date = dayjs.tz(dateStr, TZ);
   if (!date.isValid()) return { valid: false, reason: "Invalid date." };
   if (!isWeekday(date)) return { valid: false, reason: "Delivery is only available Monday to Friday." };
+
+  if (isDateBlocked(date)) return { valid: false, reason: "Merlin's Dish is closed on that date. Please pick another day." };
 
   const validSlots = slotsForDate(date, now);
   if (!validSlots.includes(timeStr)) {
@@ -99,4 +112,6 @@ module.exports = {
   firstAvailableDate,
   slotsForDate,
   validateSchedule,
+  setDateBlocker,
+  isDateBlocked,
 };

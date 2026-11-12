@@ -337,11 +337,6 @@ async function init() {
     return;
   }
 
-  if (SHOP_INFO.isOpen === false) {
-    document.getElementById("closed-message").textContent =
-      SHOP_INFO.closedMessage || "Merlin's Dish is open Monday-Friday, 11:00-21:00.";
-  }
-
   renderCategoryTabs();
   renderItemList();
   wireStaticEvents();
@@ -1652,6 +1647,32 @@ function proceedFromCart() {
   ensureMapInitialized();
 }
 
+// ---------- closed screen ----------
+// Closed hours only stop "right away" orders. Customers can still schedule a delivery
+// for any open weekday between 11:00 and 21:00 (dates the shop is closed are skipped by the server).
+function showClosedScreen() {
+  const msg = document.getElementById("closed-message");
+  const btn = document.getElementById("closed-schedule-btn");
+  const next = SHOP_INFO.nextScheduleDate;
+  if (next) {
+    msg.textContent = `You can still schedule your order for delivery between 11:00 and 21:00. Our next available day is ${formatDateDDMMYYYY(next)}.`;
+    btn.textContent = `Schedule for ${formatDateDDMMYYYY(next).slice(0, 5)}`;
+    btn.classList.remove("hidden");
+  } else {
+    msg.textContent = SHOP_INFO.closedMessage || "Merlin's Dish is open Monday-Friday, 11:00-21:00.";
+    btn.classList.add("hidden");
+  }
+  showScreen("closed-screen");
+}
+
+async function switchToScheduled() {
+  timing = "SCHEDULED";
+  document.querySelectorAll("[data-timing]").forEach((b) => b.classList.toggle("active", b.dataset.timing === "SCHEDULED"));
+  document.getElementById("schedule-picker").classList.remove("hidden");
+  showScreen("delivery-screen");
+  await initSchedulePicker();
+}
+
 // ---------- wiring ----------
 
 function wireStaticEvents() {
@@ -1756,9 +1777,7 @@ function wireStaticEvents() {
     // Kitchen-hours gate only applies to "right away" orders -- scheduled
     // (pre-order) orders can proceed to payment 24/7.
     if (timing !== "SCHEDULED" && SHOP_INFO.isOpen === false) {
-      document.getElementById("closed-message").textContent =
-        SHOP_INFO.closedMessage || "Merlin's Dish is open Monday-Friday, 11:00-21:00.";
-      showScreen("closed-screen");
+      showClosedScreen();
       return;
     }
 
@@ -1804,6 +1823,7 @@ function wireStaticEvents() {
   document.getElementById("place-order-btn").addEventListener("click", submitOrder);
   document.getElementById("new-order-btn").addEventListener("click", resetOrder);
   document.getElementById("closed-back-btn").addEventListener("click", () => showScreen("menu-screen"));
+  document.getElementById("closed-schedule-btn").addEventListener("click", switchToScheduled);
 }
 
 init();

@@ -1803,6 +1803,12 @@ async function handleMenuImage(event, userId) {
 }
 
 async function handleAdminCommand(replyToken, text) {
+  // "Instock dbs 9r 4l" / "in stock dbs 9r 4l" is a count (what is left), not "bring it back": the dish word
+  // followed by numbers is read exactly like "setstock dbs 9r 4l". "instock rws l" (no numbers) still means back in stock.
+  {
+    const m = String(text).trim().match(/^in\s?stock[\s:]+(\S+)\s+(.*\d.*)$/i);
+    if (m && !m[1].includes(",") && resolveItemId(m[1], MENU)) text = `setstock ${m[1]} ${m[2]}`;
+  }
   const lower = text.toLowerCase().trim();
 
   if (lower === "close" || lower === "close today") {

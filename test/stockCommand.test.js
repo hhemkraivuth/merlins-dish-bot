@@ -108,3 +108,18 @@ test("not a stock command", () => {
   assert.strictEqual(stockBody("left"), null);
   assert.strictEqual(stockBody("menu"), null);
 });
+
+test("numbers typed straight after the dish word, no space (sr6, tpb3, dbs5r3l)", () => {
+  const { st, variantKey, out } = run("left sr6, tpb3, ragu17, bolog8, brocs1, chics0, dbs5r3l, rws r1 l2");
+  assert.strictEqual(st.stockCount.get("spicy_rosso"), 6);
+  assert.strictEqual(st.stockCount.get("tuscan"), 3);
+  assert.strictEqual(st.stockCount.get("ragu"), 17);
+  assert.strictEqual(st.stockCount.get("bolognese"), 8);
+  assert.strictEqual(st.stockCount.get("pecorino_soup"), 1);
+  assert.ok(st.soldOut.has("chicken_soup"));
+  assert.strictEqual(st.variantStockCount.get(variantKey("dbs", "regular")), 5);
+  assert.strictEqual(st.variantStockCount.get(variantKey("dbs", "large")), 3);
+  assert.strictEqual(st.variantStockCount.get(variantKey("rws", "regular")), 1);
+  assert.strictEqual(st.variantStockCount.get(variantKey("rws", "large")), 2);
+  assert.ok(!/Not changed/.test(out));
+});

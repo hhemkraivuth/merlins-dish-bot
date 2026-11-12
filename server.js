@@ -3780,6 +3780,7 @@ try {
     menuStore,
     uploadMenuPhoto,
     persist: persistShopSettings,
+    runStock: (body) => stockCommand.run(body),
     setAnnouncement,
     clearAnnouncement,
     getStorewidePromo,

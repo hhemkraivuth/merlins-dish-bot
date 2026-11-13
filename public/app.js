@@ -284,6 +284,12 @@ function setupLineLinks() {
 // ---------- startup ----------
 
 async function init() {
+  // The menu does not depend on LINE sign-in, so start fetching it now instead of after liff.init.
+  const dataPromise = Promise.all([
+    fetch("/api/menu").then((r) => r.json()),
+    fetch("/api/shop-info").then((r) => r.json()),
+  ]);
+  dataPromise.catch(() => {});
   try {
     await liff.init({ liffId: LIFF_ID });
     if (liff.isLoggedIn()) {
@@ -307,10 +313,7 @@ async function init() {
   }
 
   try {
-    const [menuRes, shopRes] = await Promise.all([
-      fetch("/api/menu").then((r) => r.json()),
-      fetch("/api/shop-info").then((r) => r.json()),
-    ]);
+    const [menuRes, shopRes] = await dataPromise;
     MENU = menuRes.items;
     CATEGORIES = menuRes.categories;
     PASTA_OPTIONS = menuRes.pastaOptions;

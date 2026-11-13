@@ -79,22 +79,18 @@ button, input, textarea, select {
 }
 .screen.active { display: flex; }
 
-/* ---------- loading ---------- */
-#loading-screen .loading-wrap {
-  margin: auto;
-  text-align: center;
-  color: var(--ink-soft);
-}
-.loading-badge {
-  font-size: 40px;
-  animation: spin-slow 2.2s linear infinite;
-  display: inline-block;
-  margin-bottom: 8px;
-}
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+/* ---------- loading (menu placeholder) ---------- */
+#loading-screen { flex-direction: column; }
+.sk-top { height: 56px; background: var(--red); flex: none; }
+.sk-tabs { display: flex; gap: 8px; padding: 12px 16px; flex: none; }
+.sk-tabs span { height: 32px; width: 76px; border-radius: 16px; background: var(--cream-deep); }
+.sk-row { display: flex; gap: 12px; padding: 12px 16px; background: var(--card); margin: 0 12px 10px; border-radius: 14px; border: 1px solid var(--line); flex: none; }
+.sk-photo { width: 84px; height: 84px; border-radius: 12px; background: var(--cream-deep); flex: none; }
+.sk-lines { flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+.sk-line { height: 12px; border-radius: 6px; background: var(--cream-deep); }
+.sk-line.w70 { width: 70%; } .sk-line.w40 { width: 40%; } .sk-line.w55 { width: 55%; }
+.sk-tabs span, .sk-photo, .sk-line { animation: sk-pulse 1.3s ease-in-out infinite; }
+@keyframes sk-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 /* ---------- top bar ---------- */
 .topbar {

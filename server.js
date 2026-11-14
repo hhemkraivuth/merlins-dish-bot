@@ -55,7 +55,8 @@ require("dayjs/plugin/utc");
 require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
-const { splitCloseReason, isPastDayRolled } = require("./closeText");
+const { splitCloseReason, isPastDayRolled, removeDaysFromClosures } = require("./closeText");
+const { variantRemainingList } = require("./variantStock");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
 const { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts } = require("./sheetLogger");
@@ -322,7 +323,7 @@ function parseCloseDateRange(rest) {
   const parts = rest.split("-").map((p) => p.trim());
   if (parts.length !== 1 && parts.length !== 2) return null;
 
-  const parseOne = (str) => {
+  const parseOne = (str, roll = true) => {
     const m = str.match(/^(\d{1,2})\/(\d{1,2})$/);
     if (!m) return null;
     const day = parseInt(m[1], 10);
@@ -332,7 +333,7 @@ function parseCloseDateRange(rest) {
     let year = now.getFullYear();
     let candidate = new Date(year, month - 1, day);
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (candidate < today) {
+    if (roll && candidate < today) {
       year += 1;
       candidate = new Date(year, month - 1, day);
     }
@@ -349,6 +350,17 @@ function parseCloseDateRange(rest) {
     const date = parseOne(str);
     return date ? { date, wasToday: false } : null;
   };
+
+  // A run that began in the past and ends today or later ("12/11-16/11" typed on the 14th) keeps this year's start, instead of
+  // rolling the start into next year and finding it after the end.
+  if (parts.length === 2 && parts[0].toLowerCase() !== "today") {
+    const rawStart = parseOne(parts[0], false);
+    const rawEnd = parseOne(parts[1], false);
+    const todayStr = bangkokDateStr(bangkokNow());
+    if (rawStart && rawEnd && rawStart < todayStr && rawEnd >= todayStr && rawEnd >= rawStart) {
+      return { start: rawStart, end: rawEnd, startWasToday: false };
+    }
+  }
 
   const startResult = parseStart(parts[0]);
   if (!startResult) return null;
@@ -1901,6 +1913,25 @@ async function handleAdminCommand(replyToken, text) {
     });
     return true;
   }
+  if (/^(unclose|reopen)\s/.test(lower)) {
+    const rest = text.trim().replace(/^\S+\s+/, "").trim();
+    const { datePart } = splitCloseReason(rest);
+    const range = parseCloseDateRange(datePart);
+    if (!range) {
+      await client.replyMessage(replyToken, { type: "text", text: `Couldn't read that date. Use "unclose D/M" for one day (e.g. "unclose 12/11") or "unclose D/M-D/M" for a range.` });
+      return true;
+    }
+    const before = scheduledClosures.length;
+    scheduledClosures = removeDaysFromClosures(scheduledClosures, range.start, range.end);
+    const touched = before !== scheduledClosures.length || scheduledClosures.some((r) => r.start === range.end || r.end === range.start);
+    await client.replyMessage(replyToken, {
+      type: "text",
+      text: touched
+        ? `Done, ${formatDateRangeForDisplay(range)} is no longer a scheduled closure. Text "status" to see what is still scheduled.`
+        : `Nothing was scheduled as closed on ${formatDateRangeForDisplay(range)} on the order app, so nothing changed.`,
+    });
+    return true;
+  }
   if (lower.startsWith("block ")) {
     const b = parseBlockText(text.trim().slice(6));
     if (!b) {
@@ -2693,6 +2724,8 @@ app.get("/api/menu", (req, res) => {
       available: !isUnavailable(d.id),
       unavailableVariants,
       remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
+      // Per size counts (Regular and Large kept apart), only when a count was set for a size. Read only, for BOH.
+      variantRemaining: variantRemainingList(variantList, d.id, variantStockCount),
     };
   });
   res.json({

@@ -55,6 +55,7 @@ require("dayjs/plugin/utc");
 require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
+const { splitCloseReason, isPastDayRolled } = require("./closeText");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
 const { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts } = require("./sheetLogger");
@@ -1877,11 +1878,19 @@ async function handleAdminCommand(replyToken, text) {
   }
   if (lower.startsWith("close ")) {
     const rest = text.trim().slice(6).trim();
-    const range = parseCloseDateRange(rest);
+    const { datePart } = splitCloseReason(rest); // anything after the date is a reason, kept by BOH for the reports
+    const range = parseCloseDateRange(datePart);
     if (!range) {
       await client.replyMessage(replyToken, {
         type: "text",
         text: `Couldn't read that date. Use "close D/M" for one day (e.g. "close 11/9") or "close D/M-D/M" for a range (e.g. "close 11/9-13/9").`,
+      });
+      return true;
+    }
+    if (isPastDayRolled(range.end, bangkokDateStr(bangkokNow()))) {
+      await client.replyMessage(replyToken, {
+        type: "text",
+        text: `${formatDateRangeForDisplay(range)} would be next year, so that day has already passed. Nothing was scheduled on the order app.`,
       });
       return true;
     }

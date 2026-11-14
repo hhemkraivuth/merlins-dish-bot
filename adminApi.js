@@ -50,6 +50,14 @@ function mount(app, ctx) {
     res.json({ ok: true, message, saved, state: ctx.state() });
   }));
 
+  // Any admin text command the LINE group understands: { text: "close 15/11 holiday" }. Returns what the bot would have replied.
+  router.post("/command", wrap(async (req, res) => {
+    const text = String((req.body || {}).text || "").trim();
+    if (!text) return bad(res, "Type a command");
+    const r = await ctx.runCommand(text);
+    res.json({ ok: true, handled: r.handled, replies: r.replies });
+  }));
+
   router.post("/announcement", wrap(async (req, res) => {
     const b = req.body || {};
     const headline = String(b.headline || "").trim();

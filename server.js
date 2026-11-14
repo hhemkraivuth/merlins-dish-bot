@@ -3873,8 +3873,32 @@ async function persistShopSettings() {
   return results.every(Boolean);
 }
 
+// Lets BOH run any admin text command (close, promo, soldout, left and so on) and hand back what the bot would have replied.
+// Replies for a relay token are collected here instead of going to LINE. Every other reply passes straight through.
+const relayReplies = new Map();
+const replyToLine = client.replyMessage.bind(client);
+client.replyMessage = (token, messages, ...rest) => {
+  const sink = relayReplies.get(token);
+  if (!sink) return replyToLine(token, messages, ...rest);
+  for (const m of [].concat(messages)) sink.push(m && m.type === "text" ? m.text : "(a picture or card was sent)");
+  return Promise.resolve({});
+};
+async function runRelayedCommand(text) {
+  const token = `boh-relay-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const replies = [];
+  relayReplies.set(token, replies);
+  try {
+    const handled = await handleAdminCommand(token, String(text || ""));
+    if (handled) await persistShopSettings().catch(() => {});
+    return { handled: !!handled, replies };
+  } finally {
+    relayReplies.delete(token);
+  }
+}
+
 try {
   adminApi.mount(app, {
+    runCommand: runRelayedCommand,
     menu: MENU,
     categories: CATEGORIES,
     menuStore,

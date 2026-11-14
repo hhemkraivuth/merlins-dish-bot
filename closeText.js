@@ -14,4 +14,17 @@ function isPastDayRolled(rangeEndIso, todayIso) {
   return days > 300;
 }
 
-module.exports = { splitCloseReason, isPastDayRolled };
+// Takes the days from..to (YYYY-MM-DD, both included) out of a list of closed ranges. A range that is only partly covered is split,
+// so "unclose 13/11" on a closure 12/11-14/11 leaves 12/11 and 14/11 closed. Returns a new list.
+function removeDaysFromClosures(closures, from, to) {
+  const day = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+  const out = [];
+  for (const r of closures || []) {
+    if (r.end < from || r.start > to) { out.push(r); continue; }
+    if (r.start < from) out.push({ ...r, end: day(from, -1) });
+    if (r.end > to) out.push({ ...r, start: day(to, 1), startWasToday: false });
+  }
+  return out;
+}
+
+module.exports = { splitCloseReason, isPastDayRolled, removeDaysFromClosures };

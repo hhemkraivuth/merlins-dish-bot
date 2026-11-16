@@ -762,7 +762,7 @@ button, input, textarea, select {
 .item-body { min-height: 112px; display: flex; flex-direction: column; padding-right: 44px; }
 .item-body h3 { font-size: 16px; font-weight: 600; line-height: 1.2; }
 .item-badge { margin: 0 0 1px; font-size: 11px; font-weight: 700; color: var(--blue); line-height: 1.2; }
-.item-description { margin: 2px 0 0; font-size: 12.5px; line-height: 1.35; }
+.item-description { margin: 2px 0 0; font-size: 12.5px; line-height: 1.35; white-space: pre-line; }
 .item-description.clamped {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }

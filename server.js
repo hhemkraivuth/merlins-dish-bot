@@ -59,7 +59,8 @@ const { splitCloseReason, isPastDayRolled, removeDaysFromClosures } = require(".
 const { variantRemainingList } = require("./variantStock");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
 const { isAnnouncementLiveToday, getAnnouncement, setAnnouncement, clearAnnouncement } = require("./announcements");
-const { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts } = require("./sheetLogger");
+const { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts, hasPassedAgeCheck, logAgeCheck } = require("./sheetLogger");
+const { checkAge, todayBangkokISO, CONSENT_TEXT, MESSAGES: AGE_MESSAGES } = require("./ageGate");
 // ?src= values on the Grab thank you card QR codes (new customer card, return customer card). Must match CARD_SOURCES in public/app.js.
 const GRAB_CARD_SOURCES = ["gnew", "gback"];
 const {
@@ -2721,6 +2722,7 @@ app.get("/api/menu", (req, res) => {
       badge: d.badge || (mostOrderedIds.has(d.id) ? "Most ordered" : null),
       requiresPasta: !!d.requiresPasta,
       requiresSize: !!d.requiresSize,
+      ageRestricted: !!d.ageRestricted,
       available: !isUnavailable(d.id),
       unavailableVariants,
       remaining: stockCount.has(d.id) ? stockCount.get(d.id) : null,
@@ -2730,6 +2732,7 @@ app.get("/api/menu", (req, res) => {
   });
   res.json({
     categories: CATEGORIES,
+    ageConsentText: CONSENT_TEXT,
     items,
     pastaOptions: PASTA_OPTIONS,
     sizeOptions: SIZE_OPTIONS,
@@ -2906,7 +2909,7 @@ app.get("/api/customer-lookup", async (req, res) => {
   const rewardConfig = await getRewardConfig(MENU);
   const customer = await getCustomer(phone);
   if (!customer) {
-    return res.json({ found: false, orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
+    return res.json({ found: false, ageVerified: await hasPassedAgeCheck(phone), orderCount: 0, canRedeemLow: false, canRedeemHigh: false, ordersToLow: TIER_LOW, ordersToHigh: TIER_HIGH, rewardConfig });
   }
   const hasSavedPlace =
     (customer.lastLat != null && customer.lastLng != null) || !!customer.lastAddress;
@@ -2925,6 +2928,7 @@ app.get("/api/customer-lookup", async (req, res) => {
   res.set("Cache-Control", "no-store");
   res.json({
     found: customer.found,
+    ageVerified: await hasPassedAgeCheck(phone),
     name: customer.name,
     orderCount: customer.orderCount,
     canRedeemLow: customer.canRedeemLow,
@@ -3176,6 +3180,16 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
     }
   }
 
+  // Age restricted items (wine): the customer must be 20 or over. A new buyer gives a date of birth and ticks the box;
+  // a phone number that passed before skips it. Checked here, not just in the page, so a stale page cannot get past it.
+  let ageRecord = null;
+  if (lines.some((l) => { const d = MENU.find((x) => x.id === l.itemId); return d && d.ageRestricted; })) {
+    const verifiedBefore = await hasPassedAgeCheck(order.phone);
+    const verdict = checkAge(order.age || {}, todayBangkokISO(), { verifiedBefore });
+    if (!verdict.ok) return res.status(400).json({ success: false, error: verdict.code, message: AGE_MESSAGES[verdict.code] });
+    ageRecord = { dob: (order.age || {}).dob || "", viaPrevious: !!verdict.viaPrevious };
+  }
+
   const totalDiscount = lines.reduce((sum, l) => sum + (l.discountAmount || 0) * l.qty, 0);
   const promoLabelsUsed = [...new Set(lines.filter((l) => l.discountAmount > 0 && l.promoLabel).map((l) => l.promoLabel))];
 
@@ -3221,6 +3235,7 @@ app.post("/api/place-order", upload.single("slip"), async (req, res) => {
   // they had one; otherwise the next number of the day.
   const earlierFeeEntry = order.feeRequestId ? pendingFeeRequests.get(order.feeRequestId) : null;
   const orderNo = (earlierFeeEntry && earlierFeeEntry.orderNo) || (await nextOrderNo());
+  if (ageRecord) logAgeCheck({ phone: order.phone, name: order.name, dob: ageRecord.dob, orderNo, viaPrevious: ageRecord.viaPrevious, consentText: CONSENT_TEXT }).catch(() => {});
 
   let slipResult;
   try {
@@ -3953,7 +3968,7 @@ try {
       storewidePromo: getStorewidePromo(),
       itemPromos: getItemPromos(),
       categories: CATEGORIES,
-      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize })),
+      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize, ageRestricted: !!d.ageRestricted })),
       removed: menuStore.listRemoved().map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category })),
       delivery: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
     }),

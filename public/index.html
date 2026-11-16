@@ -133,6 +133,22 @@
     <p id="cart-contact-hint" class="hint hidden" style="color:#b3261e;"></p>
   </section>
 
+  <section id="age-section" class="age-box hidden">
+    <h3 class="addons-title">Wine is for ages 20 and over</h3>
+    <div class="field-group">
+      <label for="age-dd">Date of birth</label>
+      <div class="age-dob-row">
+        <input type="text" id="age-dd" class="text-input" inputmode="numeric" maxlength="2" placeholder="DD" autocomplete="off" aria-label="Day" />
+        <input type="text" id="age-mm" class="text-input" inputmode="numeric" maxlength="2" placeholder="MM" autocomplete="off" aria-label="Month" />
+        <input type="text" id="age-yyyy" class="text-input" inputmode="numeric" maxlength="4" placeholder="YYYY" autocomplete="off" aria-label="Year" />
+      </div>
+      <p class="hint">Year in C.E., for example 1995.</p>
+    </div>
+    <label class="age-consent"><input type="checkbox" id="age-consent" /><span id="age-consent-text"></span></label>
+    <p id="age-msg" class="hint hidden" style="color:#b3261e;"></p>
+    <button id="age-remove-btn" type="button" class="btn btn-secondary btn-block hidden">Remove wine and keep my food</button>
+  </section>
+
   <div class="bottom-actions">
     <p id="cart-delivery-hint" class="hint hidden"></p>
     <div class="total-row">

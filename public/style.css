@@ -1036,3 +1036,12 @@ button, input, textarea, select {
 .confirm-wrap .line-news { margin: 16px 0 0; font-size: 13px; color: var(--ink-soft); }
 
 #closed-screen .btn { display: block; margin: 0 auto 10px; min-width: 220px; }
+
+/* Age gate for wine, shown on the cart screen only when wine is in the cart. */
+.age-box { margin: 14px 16px 0; padding: 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); }
+.age-box .addons-title { margin: 0 0 8px; }
+.age-consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.4; margin-top: 10px; }
+.age-consent input { margin-top: 3px; flex: 0 0 auto; }
+#age-remove-btn { margin-top: 10px; }
+.age-dob-row { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 8px; }
+.age-dob-row .text-input { text-align: center; }

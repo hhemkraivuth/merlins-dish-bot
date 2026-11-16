@@ -221,6 +221,68 @@ async function logMenuTap({ userId, displayName, trigger }) {
 }
 
 
+// ---------- age checks (wine) ----------
+// One row per wine order in the "Age Checks" tab (created on first use): the date of birth the customer gave, their tick,
+// and the order number. A phone number with a PASS row skips the date of birth step on later orders.
+const AGE_TAB = "Age Checks";
+const AGE_HEADER = ["Date", "Time", "Phone", "Name", "Date of birth", "Result", "Order No", "Method", "Consent wording"];
+let ageTabReady = false;
+let passedLoaded = false;
+const passedPhones = new Set();
+const phoneKey = (raw) => {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.startsWith("66") && d.length === 11) d = "0" + d.slice(2);
+  if (d && !d.startsWith("0")) d = "0" + d;
+  return d;
+};
+
+async function ensureAgeTab(client) {
+  if (ageTabReady) return;
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  const meta = await client.spreadsheets.get({ spreadsheetId, fields: "sheets.properties.title" });
+  if (!(meta.data.sheets || []).some((x) => x.properties.title === AGE_TAB)) {
+    await client.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ addSheet: { properties: { title: AGE_TAB } } }] } });
+    await client.spreadsheets.values.update({ spreadsheetId, range: `${AGE_TAB}!A1`, valueInputOption: "RAW", requestBody: { values: [AGE_HEADER] } });
+  }
+  ageTabReady = true;
+}
+
+async function loadPassedPhones(client) {
+  if (passedLoaded) return;
+  try {
+    await ensureAgeTab(client);
+    const r = await client.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: `${AGE_TAB}!A:I` });
+    for (const row of (r.data.values || []).slice(1)) if (String(row[5] || "").toUpperCase() === "PASS") passedPhones.add(phoneKey(row[2]));
+    passedLoaded = true;
+  } catch (err) {
+    console.error("Age checks could not be read:", err.message);
+  }
+}
+
+// True when this phone number has already passed an age check. Without sheet access it only knows this run's checks.
+async function hasPassedAgeCheck(rawPhone) {
+  const key = phoneKey(rawPhone);
+  if (!key) return false;
+  const client = getClient();
+  if (client) await loadPassedPhones(client);
+  return passedPhones.has(key);
+}
+
+async function logAgeCheck({ phone, name, dob, orderNo, viaPrevious, consentText }) {
+  const key = phoneKey(phone);
+  if (key) passedPhones.add(key);
+  const client = getClient();
+  if (!client) return;
+  const { date, time } = bangkokDateAndTime();
+  const row = [date, time, textPhone(phone), name || "", viaPrevious ? "" : "'" + (dob || ""), "PASS", orderNo || "", viaPrevious ? "Passed an earlier order" : "Date of birth and tick", viaPrevious ? "" : consentText || ""];
+  try {
+    await ensureAgeTab(client);
+    await client.spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: `${AGE_TAB}!A:I`, valueInputOption: "USER_ENTERED", requestBody: { values: [row] } });
+  } catch (err) {
+    console.error("Age check logging failed (order still went through):", err.message);
+  }
+}
+
 // Counts how many portions of each dish were ordered directly (LINE Bot rows
 // of type "Order") in the last `days` days, read from the Orders tab. Item text
 // looks like "2x Noir Ragu + Pasta (Radiatori) (฿225), 1x Bacon Steak (฿0)".
@@ -256,4 +318,4 @@ async function getDishOrderCounts(menu, days = 60) {
   }
 }
 
-module.exports = { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts };
+module.exports = { logOrder, logMenuTap, getTodaysMaxOrderNo, getDishOrderCounts, hasPassedAgeCheck, logAgeCheck };

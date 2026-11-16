@@ -315,6 +315,7 @@ async function init() {
   try {
     const [menuRes, shopRes] = await dataPromise;
     MENU = menuRes.items;
+    AGE_CONSENT_TEXT = menuRes.ageConsentText || "";
     CATEGORIES = menuRes.categories;
     PASTA_OPTIONS = menuRes.pastaOptions;
     SIZE_OPTIONS = menuRes.sizeOptions;
@@ -754,6 +755,7 @@ async function runCustomerLookup() {
     else redeemTier = null;
   }
   renderRewardBanner();
+  updateCheckoutEnabled();
 }
 
 // Merlin doesn't do fluff or sweet talk, just a straight, warm nudge.
@@ -1119,12 +1121,71 @@ function updateContactHint() {
   el.classList.remove("hidden");
 }
 
+// ---------- age gate (wine) ----------
+// Wine needs a date of birth showing 20 or over plus the tick, unless this phone number passed on an earlier order.
+// Only appears when wine is in the cart. The server checks it again at order time.
+let AGE_CONSENT_TEXT = "";
+function cartHasAgeRestricted() {
+  return cartLines().some((l) => { const m = MENU.find((x) => x.id === l.itemId); return m && m.ageRestricted; });
+}
+function ageStepNeeded() {
+  return cartHasAgeRestricted() && !(loyaltyState && loyaltyState.ageVerified);
+}
+// The three boxes (DD, MM, YYYY) as YYYY-MM-DD, or "" until they hold a real calendar date.
+function dobFromBoxes() {
+  const d = document.getElementById("age-dd").value.trim();
+  const m = document.getElementById("age-mm").value.trim();
+  const y = document.getElementById("age-yyyy").value.trim();
+  if (!/^\d{1,2}$/.test(d) || !/^\d{1,2}$/.test(m) || !/^\d{4}$/.test(y)) return "";
+  const dt = new Date(Date.UTC(+y, +m - 1, +d));
+  if (dt.getUTCFullYear() !== +y || dt.getUTCMonth() !== +m - 1 || dt.getUTCDate() !== +d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function isBuddhistYear() {
+  return /^2[4-9]\d\d$/.test(document.getElementById("age-yyyy").value.trim());
+}
+function ageOfDob(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!m) return null;
+  const now = new Date(Date.now() + 7 * 3600e3);
+  let age = now.getUTCFullYear() - +m[1];
+  const md = (now.getUTCMonth() + 1) * 100 + now.getUTCDate();
+  if (md < +m[2] * 100 + +m[3]) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}
+function ageGateOk() {
+  if (!ageStepNeeded()) return true;
+  const age = ageOfDob(dobFromBoxes());
+  return age !== null && age >= 20 && document.getElementById("age-consent").checked;
+}
+function renderAgeBox() {
+  const box = document.getElementById("age-section");
+  if (!box) return;
+  const needed = ageStepNeeded();
+  box.classList.toggle("hidden", !needed);
+  if (!needed) return;
+  document.getElementById("age-consent-text").textContent = AGE_CONSENT_TEXT;
+  const age = ageOfDob(dobFromBoxes());
+  const under = age !== null && age < 20;
+  const buddhist = isBuddhistYear();
+  const msg = document.getElementById("age-msg");
+  msg.textContent = buddhist ? "That looks like a B.E. year. Please type the C.E. year, for example 1995." : under ? "Sorry, wine is for ages 20 and over. You can remove it and still order your food." : "";
+  msg.classList.toggle("hidden", !(under || buddhist));
+  document.getElementById("age-remove-btn").classList.toggle("hidden", !under);
+}
+function removeAgeRestrictedLines() {
+  cartLines().forEach((l) => { const m = MENU.find((x) => x.id === l.itemId); if (m && m.ageRestricted) delete cart[l.lineId]; });
+  updateCartBar();
+  renderCartScreen();
+}
+
 function updateCheckoutEnabled() {
   const name = document.getElementById("cart-name-input").value.trim();
   const phone = document.getElementById("cart-phone-input").value.trim();
   const hasItems = cartLines().length > 0;
   const hasContactInfo = name.length >= 1 && digitsOnly(phone).length >= 8;
-  document.getElementById("checkout-btn").disabled = !(hasItems && hasContactInfo);
+  renderAgeBox();
+  document.getElementById("checkout-btn").disabled = !(hasItems && hasContactInfo && ageGateOk());
 }
 
 // ---------- delivery details screen ----------
@@ -1505,6 +1566,7 @@ async function submitOrder() {
     phone: document.getElementById("cart-phone-input").value.trim(),
     paymentMethod,
     redeemTier: isRedeemingReward() ? redeemTier : null,
+    age: cartHasAgeRestricted() ? { dob: dobFromBoxes() || (isBuddhistYear() ? `${document.getElementById("age-yyyy").value.trim()}-01-01` : ""), consent: document.getElementById("age-consent").checked } : null,
     src: entrySource(),
   };
 
@@ -1690,6 +1752,16 @@ function wireStaticEvents() {
   });
 
   document.getElementById("checkout-btn").addEventListener("click", onCheckout);
+  [["age-dd", 2, "age-mm"], ["age-mm", 2, "age-yyyy"], ["age-yyyy", 4, null]].forEach(([id, len, next]) => {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => {
+      el.value = el.value.replace(/\D/g, "").slice(0, len);
+      if (next && el.value.length === len) document.getElementById(next).focus();
+      updateCheckoutEnabled();
+    });
+  });
+  document.getElementById("age-consent").addEventListener("change", updateCheckoutEnabled);
+  document.getElementById("age-remove-btn").addEventListener("click", removeAgeRestrictedLines);
 
   document.getElementById("cart-name-input").addEventListener("input", () => {
     nameTouched = true;

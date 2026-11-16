@@ -108,6 +108,7 @@ async function logOrder(order) {
     order.slipRef || "",
     order.slipUrl || "", // Link to the saved slip photo, for reference
     order.orderNo ? "'" + order.orderNo : "", // Order No, leading apostrophe keeps 001 as text
+    order.src || "", // Link the customer came from (ig, ad, gnew, rich...), column N. Add the header "Link" to N1 once.
   ];
 
   const rows = [orderRow];
@@ -154,7 +155,7 @@ async function logOrder(order) {
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Orders!A:M",
+      range: "Orders!A:N",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: rows },
     });

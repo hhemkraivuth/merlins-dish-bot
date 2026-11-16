@@ -3393,6 +3393,7 @@ async function completeLiffOrder(ctx) {
     orderNo,
     promoLabel: promoLabelsUsed.length ? promoLabelsUsed.join(", ") : null,
     deliveryFee: deliveryFeeAmount,
+    src: String(order.src || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 12),
   });
 
   const loyaltyResult = await recordOrder({

@@ -54,6 +54,7 @@ const ITEM_ALIASES = {
   pecorino_soup: ["brocs", "bs"],
   // Added from the menu editor, so it is not in menu.js; the id is the one the live order app uses.
   spicy_rosso: ["rosso", "sr", "spicyrosso", "spicy"],
+  braised_lamb_shank: ["ls", "lamb", "lambshank", "shank"],
 
   // Extras (loose pasta sold on its own, separate from the mandatory
   // pasta choice bundled with Bolognese/Ragu)

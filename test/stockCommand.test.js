@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const menu = require("../menu");
 const { SIZE_OPTIONS, PASTA_OPTIONS } = menu;
 // Spicy Rosso is added from the menu editor on the live app, so it is not in menu.js. Mirror that here.
-const MENU = [...menu.MENU, { id: "spicy_rosso", name: "Spicy Rosso", price: 215, category: "spotlight", requiresPasta: true }];
+const MENU = [...menu.MENU, { id: "spicy_rosso", name: "Spicy Rosso", price: 215, category: "spotlight", requiresPasta: true }, { id: "braised_lamb_shank", name: "Braised Lamb Shank", price: 450, category: "main" }];
 const { resolveItemId, resolveVariantId } = require("../aliases");
 const { createStockCommand, stockBody } = require("../stockCommand");
 
@@ -122,4 +122,9 @@ test("numbers typed straight after the dish word, no space (sr6, tpb3, dbs5r3l)"
   assert.strictEqual(st.variantStockCount.get(variantKey("rws", "regular")), 1);
   assert.strictEqual(st.variantStockCount.get(variantKey("rws", "large")), 2);
   assert.ok(!/Not changed/.test(out));
+});
+
+test("Braised Lamb Shank takes ls / lamb", () => {
+  assert.strictEqual(run("left ls 0").st.soldOut.has("braised_lamb_shank"), true);
+  assert.strictEqual(run("left lamb 4").st.stockCount.get("braised_lamb_shank"), 4);
 });

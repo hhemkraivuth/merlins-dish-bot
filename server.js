@@ -2191,7 +2191,7 @@ async function handleAdminCommand(replyToken, text) {
     return true;
   }
   if (lower === "stock") {
-    const body = MENU.map((d) => {
+    const stockLine = (d) => {
       const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
       const variantList = d.requiresSize ? SIZE_OPTIONS : d.requiresPasta ? PASTA_OPTIONS : [];
       // Show every size/pasta that has its own count or is sold out, so the
@@ -2204,7 +2204,25 @@ async function handleAdminCommand(replyToken, text) {
       // tick/cross here always matches whether a customer can actually
       // order this dish, not just whether it was explicitly "soldout"-ed.
       return `${isUnavailable(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}${countText}${variantNote}`;
-    }).join("\n");
+    };
+    // Group by category so each category stays together, in menu order. Dishes
+    // added later (e.g. wine) may sit at the end of MENU, so bucket by category
+    // first; any category not listed in CATEGORIES gets its own section after.
+    const catOrder = CATEGORIES.map((c) => c.id);
+    for (const d of MENU) if (!catOrder.includes(d.category)) catOrder.push(d.category);
+    const catLabel = (id) => {
+      const c = CATEGORIES.find((x) => x.id === id);
+      if (c) return c.label;
+      const t = String(id || "other").replace(/_/g, " ");
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    };
+    const body = catOrder
+      .map((id) => {
+        const items = MENU.filter((d) => d.category === id);
+        return items.length ? `${catLabel(id)}\n${items.map(stockLine).join("\n")}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
     await client.replyMessage(replyToken, { type: "text", text: `Stock status:\n${body}` });
     return true;
   }

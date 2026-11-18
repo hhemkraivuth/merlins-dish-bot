@@ -154,12 +154,46 @@ async function loadMenuOverrides(MENU) {
         }
       }
     }
+    applyRanks(MENU);
     console.log(`Custom Menu loaded: ${removed} removed, ${added} added.`);
     return { loaded: true, removed, added };
   } catch (err) {
     console.error("Custom Menu load failed, using menu.js as is:", err.message);
     return { loaded: false, removed: 0, added: 0 };
   }
+}
+
+// Order inside each category. Every item in a category that has been moved carries a numeric "rank"; the live MENU array is
+// re-laid so each category keeps the slots it already had but its items follow their rank (unranked items stay after ranked ones,
+// in their old order). The order app and the back office both read the MENU array, so they always agree.
+function applyRanks(MENU) {
+  const byCat = new Map();
+  MENU.forEach((d, i) => { if (!byCat.has(d.category)) byCat.set(d.category, []); byCat.get(d.category).push(i); });
+  for (const idxs of byCat.values()) {
+    const items = idxs.map((i) => MENU[i]);
+    if (!items.some((d) => Number.isFinite(d.rank))) continue;
+    const sorted = items.map((d, n) => ({ d, n })).sort((a, b) => (Number.isFinite(a.d.rank) ? a.d.rank : 1e6 + a.n) - (Number.isFinite(b.d.rank) ? b.d.rank : 1e6 + b.n)).map((x) => x.d);
+    idxs.forEach((i, k) => { MENU[i] = sorted[k]; });
+  }
+}
+
+// Moves an item one place up or down inside its category.
+async function moveItem(MENU, id, direction) {
+  const dish = MENU.find((d) => d.id === id);
+  if (!dish) return { ok: false, saved: false, reason: "missing" };
+  const list = MENU.filter((d) => d.category === dish.category);
+  const at = list.indexOf(dish);
+  const to = direction === "up" ? at - 1 : direction === "down" ? at + 1 : at;
+  if (to < 0 || to >= list.length || to === at) return { ok: true, saved: true, moved: false };
+  [list[at], list[to]] = [list[to], list[at]];
+  let saved = true;
+  for (let k = 0; k < list.length; k++) {
+    if (list[k].rank === k) continue;
+    list[k].rank = k;
+    saved = (await saveRecord(list[k].id, "active", list[k])) && saved;
+  }
+  applyRanks(MENU);
+  return { ok: true, saved, moved: true };
 }
 
 // Takes an item off the live menu for good (until "restore").
@@ -225,6 +259,8 @@ module.exports = {
   restoreItem,
   addItem,
   updateItem,
+  moveItem,
+  applyRanks,
   listRemoved,
   makeItemId,
 };

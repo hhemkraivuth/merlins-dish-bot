@@ -198,6 +198,13 @@ function mount(app, ctx) {
     await ctx.menuStore.addItem(ctx.menu, item);
     await done(res);
   }));
+  router.post("/menu/move", wrap(async (req, res) => {
+    const b = req.body || {};
+    if (!["up", "down"].includes(b.direction)) return bad(res, "Direction must be up or down");
+    const r = await ctx.menuStore.moveItem(ctx.menu, b.id, b.direction);
+    if (!r.ok) return bad(res, "That item is not on the menu");
+    await done(res);
+  }));
   router.post("/menu/remove", wrap(async (req, res) => {
     const r = await ctx.menuStore.removeItem(ctx.menu, (req.body || {}).id);
     if (!r.ok) return bad(res, "That item is not on the menu");

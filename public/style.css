@@ -824,7 +824,7 @@ button, input, textarea, select {
 }
 .sheet-title { font-size: 19px; margin: 0 40px 4px 0; }
 .sheet-label { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: var(--ink-soft); }
-.sheet-options { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; overflow-y: auto; }
+.sheet-options { display: flex; flex-direction: column; gap: 8px; }
 .sheet-option {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 12px 14px; border-radius: 12px; cursor: pointer; text-align: left;
@@ -840,11 +840,11 @@ button, input, textarea, select {
 .sheet-option.selected .radio { border-color: var(--red); background: radial-gradient(var(--red) 45%, transparent 50%); }
 .sheet-option .opt-name { flex: 1; font-weight: 700; }
 .sheet-option .opt-price { font-weight: 700; color: var(--ink-soft); font-size: 13px; }
-.sheet-panel { max-height: 92vh; overflow-y: auto; }
+.sheet-panel { max-height: 94vh; max-height: 94dvh; overflow-y: auto; }
 .sheet-label-gap { margin-top: 16px; }
 .sheet-optional { font-weight: 600; opacity: 0.75; }
-.sheet-noodles { max-height: 30vh; }
-.sheet-noodles .sheet-option { padding: 10px 14px; }
+.sheet-noodles { gap: 6px; }
+.sheet-noodles .sheet-option { padding: 9px 14px; }
 .opt-rec { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: var(--gold); color: var(--ink); vertical-align: middle; }
 .sheet-footer { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
 .sheet-add-btn {

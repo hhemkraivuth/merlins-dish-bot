@@ -583,7 +583,8 @@ function noodleChoices(dish) {
   if (!dish.offersNoodles || dish.requiresPasta) return [];
   const extras = MENU.filter((d) => d.category === "extras");
   const extraFor = (p) => extras.find((d) => d.id === `extra_${p.id}`) || extras.find((d) => d.name.toLowerCase().replace(/\(extra\)/, "").trim().startsWith(p.name.toLowerCase()));
-  return PASTA_OPTIONS.map((p) => ({ pasta: p, item: extraFor(p) })).filter((x) => x.item);
+  // Dearest first (the ฿45 group), keeping the usual order inside each price.
+  return PASTA_OPTIONS.map((p, n) => ({ pasta: p, item: extraFor(p), n })).filter((x) => x.item).sort((a, b) => b.item.price - a.item.price || a.n - b.n);
 }
 
 function openOptionSheet(dish) {

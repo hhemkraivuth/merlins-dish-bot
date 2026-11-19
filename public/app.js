@@ -1535,6 +1535,12 @@ function updatePlaceOrderEnabled() {
   const phone = document.getElementById("cart-phone-input").value.trim();
   const ok = !!slipFile && name.length >= 1 && digitsOnly(phone).length >= 8;
   document.getElementById("place-order-btn").disabled = !ok;
+  const note = document.getElementById("place-order-note");
+  if (note) {
+    note.textContent = ok ? "" : !slipFile
+      ? "Attach your payment slip above to unlock this button."
+      : "Please check your name and phone number on the cart screen.";
+  }
 }
 
 // ---------- submit order ----------

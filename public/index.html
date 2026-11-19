@@ -257,11 +257,13 @@
 
     <section class="field-group">
       <label for="slip-input">Payment slip</label>
+      <p class="hint">Paid already? Attach your slip here to place your order.</p>
       <input type="file" id="slip-input" accept="image/*" />
       <div id="slip-preview" class="slip-preview hidden"></div>
     </section>
 
     <button id="place-order-btn" class="btn btn-primary btn-block" disabled>Place order</button>
+    <p id="place-order-note" class="hint">Attach your payment slip above to unlock this button.</p>
     <p id="submit-status" class="hint"></p>
   </main>
 </div>

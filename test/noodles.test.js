@@ -58,3 +58,13 @@ test("per dish lists must name real noodles", () => {
   assert.ok(n.dishPatch({ noodleRecommend: "risoni" }, list()).error);
   assert.deepStrictEqual(n.dishPatch({}, list()).patch, {});
 });
+
+test("pasta dishes only tag a noodle once one is ticked, and a dish can keep its own order", () => {
+  const dish = { requiresPasta: true, description: "Rich. // Recommend pairing with Lumache." };
+  assert.deepStrictEqual(n.recommendedIds(dish, list()), []);
+  assert.deepStrictEqual(n.recommendedIds({ ...dish, noodleRecommend: ["lumache"] }, list()), ["lumache"]);
+  assert.deepStrictEqual(n.orderIds({ noodleOrder: ["risoni", "tubetti", "bad id"] }), ["risoni", "tubetti"]);
+  assert.deepStrictEqual(n.orderIds({}), []);
+  assert.deepStrictEqual(n.dishPatch({ noodleOrder: ["risoni", "tubetti"] }, list()).patch, { noodleOrder: ["risoni", "tubetti"] });
+  assert.ok(n.dishPatch({ noodleOrder: ["nope"] }, list()).error);
+});

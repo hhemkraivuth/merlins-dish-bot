@@ -10,7 +10,7 @@
 //   - with a pasta dish (Ragu, Bolognese): mandatorySurcharge, hidden by hideInPasta
 //   - as an optional pairing on a mains or soup: its Extras item (extra_<id>), hidden by hideInPairing
 // Per dish (set on the menu item): noodleSkip = noodle ids that dish does NOT offer, noodleRecommend = the
-// noodles tagged "Recommended". Without noodleRecommend the old "Recommend pairing with X" line in the
+// noodles tagged "Recommended", noodleOrder = the order that dish lists them in. Without noodleRecommend the old "Recommend pairing with X" line in the
 // description is used, so nothing changes until Lily ticks something.
 
 const RECOMMEND_RE = /recommend pairing with ([a-z]+)/i;
@@ -22,10 +22,15 @@ const money = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) >= 0 && 
 function recommendedIds(dish, noodles) {
   const known = new Set(noodles.map((n) => n.id));
   if (Array.isArray(dish.noodleRecommend)) return dish.noodleRecommend.filter((id) => known.has(id));
+  // Pasta dishes only tag a noodle once Lily ticks one, so their popup stays as it was until then.
+  if (dish.requiresPasta) return [];
   const m = RECOMMEND_RE.exec((dish && dish.description) || "");
   const hit = m && noodles.find((n) => n.name.toLowerCase() === m[1].toLowerCase());
   return hit ? [hit.id] : [];
 }
+
+// The order this dish shows its noodles in (ids Lily arranged), anything not arranged follows in the main list order.
+const orderIds = (dish) => (Array.isArray(dish.noodleOrder) ? dish.noodleOrder.filter(isId) : []);
 
 const skippedIds = (dish) => (Array.isArray(dish.noodleSkip) ? dish.noodleSkip.filter(isId) : []);
 
@@ -95,7 +100,7 @@ function move(noodles, id, direction) {
 function dishPatch(body, noodles) {
   const patch = {};
   const known = new Set(noodles.map((n) => n.id));
-  for (const [field, key] of [["noodleSkip", "noodleSkip"], ["noodleRecommend", "noodleRecommend"]]) {
+  for (const [field, key] of [["noodleSkip", "noodleSkip"], ["noodleRecommend", "noodleRecommend"], ["noodleOrder", "noodleOrder"]]) {
     if (body[field] === undefined) continue;
     if (!Array.isArray(body[field])) return { error: `${field} must be a list of noodles` };
     const ids = [...new Set(body[field].map(String))];
@@ -105,4 +110,4 @@ function dishPatch(body, noodles) {
   return { patch };
 }
 
-module.exports = { recommendedIds, skippedIds, snapshot, applySaved, extraItemFor, makeNoodleId, move, dishPatch, money, isId };
+module.exports = { recommendedIds, skippedIds, orderIds, snapshot, applySaved, extraItemFor, makeNoodleId, move, dishPatch, money, isId };

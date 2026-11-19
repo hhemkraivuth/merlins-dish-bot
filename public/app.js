@@ -570,25 +570,38 @@ function refreshCardControls() {
 
 // ---------- option sheet (size / pasta, second step) ----------
 
+// Puts one dish's noodles in the order Lily set for it: Recommended first, then her arranged order, then the main list order.
+function orderForDish(dish, rows) {
+  const rec = dish.noodleRecommend || [];
+  const arranged = dish.noodleOrder || [];
+  const rank = (id) => { const i = arranged.indexOf(id); return i < 0 ? 1e6 : i; };
+  return rows
+    .map((x, n) => ({ ...x, n, recommended: rec.includes(x.pasta.id) }))
+    .sort((a, b) => (b.recommended - a.recommended) || (rank(a.pasta.id) - rank(b.pasta.id)) || a.n - b.n);
+}
+
+// Noodles for a pasta dish's compulsory choice: hidden ones and the ones this dish skips are left out.
+function pastaChoices(dish) {
+  const skip = dish.noodleSkip || [];
+  return orderForDish(dish, PASTA_OPTIONS.filter((p) => !p.hideInPasta && !skip.includes(p.id)).map((p) => ({ pasta: p })));
+}
+
 // Optional noodle pairings for a main or soup: each noodle is sold as its own item in the Extras category.
-// Hidden noodles and the ones this dish skips are left out. Recommended ones come first, then the back office order.
 function noodleChoices(dish) {
   if (!dish.offersNoodles || dish.requiresPasta) return [];
   const extras = MENU.filter((d) => d.category === "extras");
   const extraFor = (p) => extras.find((d) => d.id === `extra_${p.id}`) || extras.find((d) => d.name.toLowerCase().replace(/\(extra\)/, "").trim().startsWith(p.name.toLowerCase()));
   const skip = dish.noodleSkip || [];
-  const rec = dish.noodleRecommend || [];
-  return PASTA_OPTIONS
-    .map((p, n) => ({ pasta: p, item: extraFor(p), n, recommended: rec.includes(p.id) }))
-    .filter((x) => x.item && !x.pasta.hideInPairing && !skip.includes(x.pasta.id))
-    .sort((a, b) => (b.recommended - a.recommended) || a.n - b.n);
+  return orderForDish(dish, PASTA_OPTIONS.map((p) => ({ pasta: p, item: extraFor(p) })).filter((x) => x.item && !x.pasta.hideInPairing && !skip.includes(x.pasta.id)));
 }
 
 function openOptionSheet(dish) {
   closeOptionSheet();
   const isSize = !!dish.requiresSize;
   const hasPrimary = isSize || !!dish.requiresPasta;
-  const options = isSize ? SIZE_OPTIONS : hasPrimary ? PASTA_OPTIONS.filter((p) => !p.hideInPasta) : [];
+  const pastaRows = dish.requiresPasta ? pastaChoices(dish) : [];
+  const recById = new Map(pastaRows.map((x) => [x.pasta.id, x.recommended]));
+  const options = isSize ? SIZE_OPTIONS : hasPrimary ? pastaRows.map((x) => x.pasta) : [];
   const label = isSize ? "Choose serving size" : "Choose your pasta";
   const soldOutIds = dish.unavailableVariants || [];
   const noodles = noodleChoices(dish);
@@ -614,7 +627,7 @@ function openOptionSheet(dish) {
           const sur = o.mandatorySurcharge ? `+฿${o.mandatorySurcharge}` : "฿0";
           return `<button type="button" class="sheet-option" data-id="${o.id}" ${soldOut ? "disabled" : ""}>
             <span class="radio"></span>
-            <span class="opt-name">${o.name}${soldOut ? " (sold out)" : ""}</span>
+            <span class="opt-name">${o.name}${soldOut ? " (sold out)" : ""}${recById.get(o.id) && !soldOut ? `<span class="opt-rec">Recommended</span>` : ""}</span>
             <span class="opt-price">${sur}</span>
           </button>`;
         }).join("")}

@@ -1338,10 +1338,23 @@ function ensureMapInitialized() {
           pane.style.zIndex = 250;
           const vec = L.maplibreGL({ style, pane: "vecPane", attribution: "&copy; OpenStreetMap contributors &copy; CARTO" }).addTo(map);
           const gl = vec.getMaplibreMap();
-          gl.on("error", (ev) => console.error("Vector map error:", ev && ev.error && ev.error.message));
-          gl.once("idle", () => { try { map.removeLayer(esriTiles); } catch (e) {} });
+          // TEMPORARY on-screen status so a screenshot shows what the vector map is doing (remove once the map is confirmed).
+          const dbg = document.createElement("div");
+          dbg.style.cssText = "position:absolute;left:6px;bottom:22px;z-index:1000;background:rgba(255,255,255,.9);font:11px/1.3 monospace;padding:2px 6px;border-radius:4px;max-width:80%;color:#111";
+          dbg.textContent = "vector: loading";
+          map.getContainer().appendChild(dbg);
+          gl.on("error", (ev) => { const m = ev && ev.error && ev.error.message; console.error("Vector map error:", m); dbg.textContent = "vector error: " + String(m || "unknown").slice(0, 160); });
+          gl.once("load", () => { dbg.textContent = "vector: loaded"; });
+          gl.once("idle", () => { dbg.textContent = "vector: ready"; try { map.removeLayer(esriTiles); } catch (e) {} });
+          setTimeout(() => { if (/loading/.test(dbg.textContent)) dbg.textContent = "vector: still loading after 8s, size " + gl.getCanvas().width + "x" + gl.getCanvas().height; }, 8000);
         })
-        .catch((e) => console.error("Vector map failed, keeping the Esri street map:", e));
+        .catch((e) => {
+          console.error("Vector map failed, keeping the Esri street map:", e);
+          const d = document.createElement("div");
+          d.style.cssText = "position:absolute;left:6px;bottom:22px;z-index:1000;background:rgba(255,255,255,.9);font:11px/1.3 monospace;padding:2px 6px;border-radius:4px;max-width:80%;color:#111";
+          d.textContent = "vector failed: " + String((e && e.message) || e).slice(0, 160);
+          map.getContainer().appendChild(d);
+        });
     }
     const redPinIcon = L.divIcon({
       className: "custom-pin-icon",

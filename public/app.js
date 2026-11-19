@@ -1074,6 +1074,7 @@ function renderAddonsRow() {
       cell.innerHTML = `
         <div class="addon-in">
           <div class="addon-name">${dish.name}</div>
+          ${dish.badge ? `<span class="addon-tag">${dish.badge}</span>` : ""}
           <div class="addon-bottom">
             <span class="addon-price">${priceHtml}</span>
             <button type="button" class="addon-plus" aria-label="Add ${dish.name}">+</button>

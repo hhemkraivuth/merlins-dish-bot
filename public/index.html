@@ -118,21 +118,6 @@
     <div id="addon-row" class="addon-row"></div>
   </section>
 
-  <section class="cart-contact">
-    <div class="field-group">
-      <label for="cart-name-input">Name</label>
-      <input type="text" id="cart-name-input" class="text-input" placeholder="Your name" />
-    </div>
-
-    <div class="field-group">
-      <label for="cart-phone-input">Contact number</label>
-      <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
-      <p id="cart-saved-hint" class="hint hidden">Welcome back. Your name, number and last address are saved for you.</p>
-    </div>
-
-    <p id="cart-contact-hint" class="hint hidden" style="color:#b3261e;"></p>
-  </section>
-
   <section id="age-section" class="age-box hidden">
     <h3 class="addons-title">Wine is for ages 20 and over</h3>
     <div class="field-group">
@@ -149,13 +134,30 @@
     <button id="age-remove-btn" type="button" class="btn btn-secondary btn-block hidden">Remove wine and keep my food</button>
   </section>
 
-  <div class="bottom-actions">
-    <p id="cart-delivery-hint" class="hint hidden"></p>
-    <div class="total-row">
-      <span>Total</span>
-      <strong id="cart-screen-total">฿0</strong>
+  <div class="cart-foot">
+    <section class="cart-contact">
+      <div class="field-group">
+        <label for="cart-name-input">Name</label>
+        <input type="text" id="cart-name-input" class="text-input" placeholder="Your name" />
+      </div>
+
+      <div class="field-group">
+        <label for="cart-phone-input">Contact number</label>
+        <input type="tel" id="cart-phone-input" class="text-input" placeholder="For the delivery" />
+        <p id="cart-saved-hint" class="hint hidden">Welcome back. Your name, number and last address are saved for you.</p>
+      </div>
+
+      <p id="cart-contact-hint" class="hint hidden" style="color:#b3261e;"></p>
+    </section>
+
+    <div class="bottom-actions">
+      <p id="cart-delivery-hint" class="hint hidden"></p>
+      <div class="total-row">
+        <span>Total</span>
+        <strong id="cart-screen-total">฿0</strong>
+      </div>
+      <button id="checkout-btn" class="btn btn-primary btn-block" disabled>Checkout</button>
     </div>
-    <button id="checkout-btn" class="btn btn-primary btn-block" disabled>Checkout</button>
   </div>
 </div>
 

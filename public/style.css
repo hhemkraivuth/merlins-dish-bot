@@ -1063,3 +1063,25 @@ button, input, textarea, select {
 .addon-toggle { margin: 6px 0 0; padding: 6px 0; border: none; background: none; color: var(--red); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .slip-steps { margin: 0 0 10px; padding-left: 20px; font-size: 14px; color: var(--ink); line-height: 1.4; }
 .slip-steps li { margin: 0 0 3px; }
+
+/* Cart page, final layout (19/11/2026): clean hairline rows, and Name, Contact number, Total and Checkout
+   are one block fixed to the bottom of the screen. */
+.addons { margin-bottom: 4px; }
+.addons-title { margin: 0 0 0; }
+.addon-row { column-gap: 14px; }
+.addon, .addon:first-child { padding: 7px 0 6px; }
+.addon-in { display: flex; flex-direction: column; min-width: 0; }
+.addon-name { font-size: 12.5px; }
+.addon-tag { align-self: flex-start; margin-top: 3px; padding: 1px 7px; border-radius: 999px; background: #F7C52B; color: var(--ink); font-size: 10px; font-weight: 700; line-height: 1.4; }
+.addon-bottom { margin-top: auto; padding-top: 4px; }
+.addon-price { font-size: 13px; }
+.addon-plus { width: 30px; height: 24px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--cream); color: var(--ink); font-size: 16px; }
+.addon-plus.has { background: #fff; border-color: var(--ink); font-size: 12px; font-weight: 800; }
+.addon-toggle { margin: 0; padding: 8px 0 0; }
+
+.cart-foot { position: sticky; bottom: 0; z-index: 5; margin-top: auto; background: var(--cream); border-top: 0.5px solid var(--line-strong); }
+.cart-foot .cart-contact { margin: 0; padding: 10px 16px 0; border-top: none; }
+.cart-foot .cart-contact .field-group label { font-size: 13px; margin-bottom: 3px; }
+.cart-foot .cart-contact .text-input { padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line-strong); background: #fff; }
+#cart-screen .cart-foot .cart-contact .field-group + .field-group { margin-top: 7px; }
+.cart-foot .bottom-actions { position: static; padding-top: 8px; border-top: none; box-shadow: none; }

@@ -2194,19 +2194,18 @@ async function handleAdminCommand(replyToken, text) {
     return true;
   }
   if (lower === "stock") {
+    // Kitchen-friendly: just the dish name and how many are left.
     const stockLine = (d) => {
-      const countText = stockCount.has(d.id) ? ` [${stockCount.get(d.id)} left]` : "";
       const variantList = d.requiresSize ? SIZE_OPTIONS : d.requiresPasta ? PASTA_OPTIONS : [];
-      // Show every size/pasta that has its own count or is sold out, so the
-      // numbers you set (e.g. Large 4, Regular 7) are always visible here.
       const variantNotes = variantList
         .filter((v) => isVariantUnavailable(d.id, v.id) || variantStockCount.has(variantKey(d.id, v.id)))
-        .map((v) => (isVariantUnavailable(d.id, v.id) ? `${v.name} sold out` : `${v.name} [${remainingVariantStock(d.id, v.id)} left]`));
+        .map((v) => (isVariantUnavailable(d.id, v.id) ? `${v.name} 0` : `${v.name} ${remainingVariantStock(d.id, v.id)}`));
       const variantNote = variantNotes.length ? ` (${variantNotes.join(", ")})` : "";
-      // isUnavailable() already folds in "all variants sold out", so the
-      // tick/cross here always matches whether a customer can actually
-      // order this dish, not just whether it was explicitly "soldout"-ed.
-      return `${isUnavailable(d.id) ? "❌" : "✅"} ${d.id} -- ${d.name}${countText}${variantNote}`;
+      let status;
+      if (isUnavailable(d.id)) status = "sold out";
+      else if (stockCount.has(d.id)) status = `${stockCount.get(d.id)} left`;
+      else status = "available";
+      return `${d.name}: ${status}${variantNote}`;
     };
     // Group by category so each category stays together, in menu order. Dishes
     // added later (e.g. wine) may sit at the end of MENU, so bucket by category

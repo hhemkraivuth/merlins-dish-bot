@@ -257,7 +257,11 @@
 
     <section class="field-group">
       <label for="slip-input">Payment slip</label>
-      <p class="slip-step">Attach your slip here to place your order.</p>
+      <ol class="slip-steps">
+        <li>Transfer the total to the account above, or scan the QR code.</li>
+        <li>Screenshot the transfer confirmation. That screenshot is your payment slip.</li>
+        <li>Attach it here to place your order.</li>
+      </ol>
       <input type="file" id="slip-input" accept="image/*" />
       <div id="slip-preview" class="slip-preview hidden"></div>
     </section>

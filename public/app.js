@@ -627,7 +627,7 @@ function openOptionSheet(dish) {
           const sur = o.mandatorySurcharge ? `+฿${o.mandatorySurcharge}` : "฿0";
           return `<button type="button" class="sheet-option" data-id="${o.id}" ${soldOut ? "disabled" : ""}>
             <span class="radio"></span>
-            <span class="opt-name">${o.name}${soldOut ? " (sold out)" : ""}${recById.get(o.id) && !soldOut ? `<span class="opt-rec">Recommended</span>` : ""}</span>
+            <span class="opt-name">${o.label || o.name}${soldOut ? " (sold out)" : ""}${recById.get(o.id) && !soldOut ? `<span class="opt-rec">Recommended</span>` : ""}</span>
             <span class="opt-price">${sur}</span>
           </button>`;
         }).join("")}
@@ -1044,6 +1044,7 @@ function updateDeliveryNudge() {
 // Bacon Steak first, then the drinks. Built once per set of items so the
 // swipe position isn't lost every time something is added; the buttons just
 // update their count.
+const ADDON_VISIBLE = 4;
 function addonItems() {
   const bacon = MENU.filter((d) => d.id === "bacon_steak" && !isUnavailableClient(d));
   const drinks = MENU.filter((d) => d.category === "drinks" && !isUnavailableClient(d));
@@ -1090,9 +1091,24 @@ function renderAddonsRow() {
         renderCartScreen();
         renderItemList();
       });
+      cell.classList.toggle("addon-extra", wrap.children.length >= ADDON_VISIBLE);
       wrap.appendChild(cell);
     });
   }
+
+  // Four suggestions show at once in a two column grid, so nothing hides behind a swipe. The rest open with one tap.
+  let toggle = document.getElementById("addon-toggle");
+  if (!toggle) {
+    toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.id = "addon-toggle";
+    toggle.className = "addon-toggle";
+    toggle.addEventListener("click", () => { wrap.classList.toggle("open"); renderAddonsRow(); });
+    wrap.after(toggle);
+  }
+  const extra = Math.max(0, items.length - ADDON_VISIBLE);
+  toggle.classList.toggle("hidden", extra === 0);
+  toggle.textContent = wrap.classList.contains("open") ? "Show less" : `More drinks (${extra})`;
 
   // Show how many of each are already in the cart on the button itself.
   wrap.querySelectorAll(".addon").forEach((cell) => {

@@ -112,9 +112,11 @@ const PASTA_OPTIONS = [
 // "Regular" is the base price already on the dish, "Large" adds
 // mandatorySurcharge on top. Change the surcharge here if the price gap
 // between sizes ever changes.
+// label is only what the customer reads on the size sheet (with the weight). name stays
+// plain because it is what the cart, the LINE flow and the books use to match dishes.
 const SIZE_OPTIONS = [
-  { id: "regular", name: "Regular", mandatorySurcharge: 0 },
-  { id: "large", name: "Large", mandatorySurcharge: 100 },
+  { id: "regular", name: "Regular", label: "Regular (350g)", mandatorySurcharge: 0 },
+  { id: "large", name: "Large", label: "Large (525g)", mandatorySurcharge: 100 },
 ];
 
 // ============================================================

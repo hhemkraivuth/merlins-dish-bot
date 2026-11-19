@@ -55,7 +55,8 @@ require("dayjs/plugin/utc");
 require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const noodleLib = require("./noodles");
-const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
+const aliasLib = require("./aliases");
+const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = aliasLib;
 const { splitCloseReason, isPastDayRolled, removeDaysFromClosures } = require("./closeText");
 const { variantRemainingList } = require("./variantStock");
 const { activePromoForItem, discountedPrice, getStorewidePromo, setStorewidePromo, getItemPromos, setItemPromo, clearItemPromo, bangkokTodayStr, isPromoLiveToday } = require("./promos");
@@ -3949,6 +3950,7 @@ async function persistShopSettings() {
     shopSettings.save("hours", snap.hours),
     shopSettings.save("tiers", snap.tiers),
     shopSettings.save("noodles", noodleLib.snapshot(PASTA_OPTIONS)),
+    shopSettings.save("aliases", aliasLib.customAliases()),
   ]);
   return results.every(Boolean);
 }
@@ -4023,6 +4025,7 @@ menuStore
   .then((saved) => {
     // Bring back what was set before the last restart. If nothing was saved, the built in defaults stay.
     noodleLib.applySaved(PASTA_OPTIONS, saved.noodles);
+    aliasLib.applyCustomAliases(saved.aliases, MENU);
     applyShopSettings({ announcement: saved.announcement, storewide: saved.promos && saved.promos.storewide, itemPromos: saved.promos && saved.promos.itemPromos, hours: saved.hours, tiers: saved.tiers });
   })
   .catch((err) => console.error("Shop settings failed to apply:", err.message))

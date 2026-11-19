@@ -21,6 +21,7 @@ function sameToken(a, b) {
 }
 
 const noodleLib = require("./noodles");
+const aliasLib = require("./aliases");
 const OPTIONS = ["none", "pasta", "size"];
 const bad = (res, msg) => res.status(400).json({ error: msg });
 const num = (v) => (v === "" || v === null || v === undefined ? NaN : Number(v));
@@ -260,6 +261,14 @@ function mount(app, ctx) {
     ctx.noodles.push({ id, image, ...f });
     await ctx.menuStore.addItem(ctx.menu, { id: `extra_${id}`, name: `${f.name} (Extra)`, price: f.extraPrice, category: "extras", image, description: "" });
     await done(res);
+  }));
+  // Shorthand for the stock box and LINE commands, added when a dish is renamed in the back office.
+  router.post("/aliases/add", wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = aliasLib.addItemAlias(String(b.id || ""), b.word, ctx.menu);
+    if (r.error) return bad(res, r.error);
+    const saved = await ctx.persist();
+    res.json({ ok: true, saved, word: r.word, aliases: (aliasLib.ITEM_ALIASES[b.id] || []).slice() });
   }));
   router.post("/noodles/move", wrap(async (req, res) => {
     const b = req.body || {};

@@ -53,7 +53,7 @@ const ITEM_ALIASES = {
   chicken_soup: ["chix", "cs", "chicsoup", "chics"],
   pecorino_soup: ["brocs", "bs"],
   // Added from the menu editor, so it is not in menu.js; the id is the one the live order app uses.
-  spicy_rosso: ["rosso", "sr", "spicyrosso", "spicy"],
+  spicy_rosso: ["rosso", "sr", "spicyrosso", "spicy", "baconpomodoro", "pomodoro"],
   braised_lamb_shank: ["ls", "lamb", "lambshank", "shank"],
 
   // Extras (loose pasta sold on its own, separate from the mandatory
@@ -156,7 +156,43 @@ function resolveVariantId(dish, typed) {
   return null;
 }
 
+// Shorthand Lily adds herself from the back office when she renames a dish. Kept apart from the built in table so it
+// can be saved and restored on its own: { dishId: ["bp", ...] }.
+const customAliases = {};
+
+function cleanWord(word) {
+  return String(word || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Adds one keyword for a dish. Returns { ok: true, word } or { error }.
+function addItemAlias(id, word, menu) {
+  const w = cleanWord(word);
+  if (w.length < 2 || w.length > 20) return { error: "Use 2 to 20 letters or numbers for the shorthand." };
+  if (!/[a-z]/.test(w)) return { error: "The shorthand needs at least one letter." };
+  if (!(menu || []).some((d) => d.id === id)) return { error: "That dish is not on the menu." };
+  const taken = itemLookup.get(w);
+  if (taken && taken !== id) return { error: `"${w}" already means another dish. Pick a different shorthand.` };
+  if (sizeLookup.has(w) || pastaLookup.has(w)) return { error: `"${w}" is already a size or pasta word. Pick a different shorthand.` };
+  if (!ITEM_ALIASES[id]) ITEM_ALIASES[id] = [];
+  if (!ITEM_ALIASES[id].includes(w)) ITEM_ALIASES[id].push(w);
+  itemLookup.set(w, id);
+  customAliases[id] = [...new Set([...(customAliases[id] || []), w])];
+  return { ok: true, word: w };
+}
+
+// Brings back what was saved before a restart.
+function applyCustomAliases(saved, menu) {
+  if (!saved || typeof saved !== "object") return;
+  for (const [id, words] of Object.entries(saved)) {
+    if (!Array.isArray(words)) continue;
+    for (const w of words) addItemAlias(id, w, menu);
+  }
+}
+
 module.exports = {
+  addItemAlias,
+  applyCustomAliases,
+  customAliases: () => JSON.parse(JSON.stringify(customAliases)),
   ITEM_ALIASES,
   SIZE_ALIASES,
   PASTA_ALIASES,

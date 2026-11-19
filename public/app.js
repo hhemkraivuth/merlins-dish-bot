@@ -1333,8 +1333,13 @@ function ensureMapInitialized() {
               ["all", ["has", "name:en"], ["!=", ["get", "name:en"], ""]], ["get", "name:en"],
               orig];
           });
-          const vec = L.maplibreGL({ style, attribution: "&copy; OpenStreetMap contributors &copy; CARTO" }).addTo(map);
-          vec.getMaplibreMap().once("load", () => map.removeLayer(esriTiles));
+          // Its own pane above the Esri tiles (which sit at z-index 1 inside the tile pane), so it can never hide underneath them.
+          const pane = map.createPane("vecPane");
+          pane.style.zIndex = 250;
+          const vec = L.maplibreGL({ style, pane: "vecPane", attribution: "&copy; OpenStreetMap contributors &copy; CARTO" }).addTo(map);
+          const gl = vec.getMaplibreMap();
+          gl.on("error", (ev) => console.error("Vector map error:", ev && ev.error && ev.error.message));
+          gl.once("idle", () => { try { map.removeLayer(esriTiles); } catch (e) {} });
         })
         .catch((e) => console.error("Vector map failed, keeping the Esri street map:", e));
     }

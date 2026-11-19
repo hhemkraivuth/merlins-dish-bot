@@ -2716,6 +2716,12 @@ async function refreshMostOrdered() {
   mostOrderedIds = leaders.length === 1 || top >= 2 ? new Set(leaders) : new Set();
 }
 
+// Mains and soups offer an optional noodle pairing unless switched off for that dish (offersNoodles: false).
+function offersNoodles(d) {
+  if (d.offersNoodles === true || d.offersNoodles === false) return d.offersNoodles;
+  return (d.category === "mains" || d.category === "soup") && !d.requiresPasta;
+}
+
 app.get("/api/menu", (req, res) => {
   if (Date.now() - mostOrderedAt > MOST_ORDERED_TTL_MS) refreshMostOrdered().catch(() => {});
   const items = MENU.map((d) => {
@@ -2740,6 +2746,7 @@ app.get("/api/menu", (req, res) => {
       badge: d.badge || (mostOrderedIds.has(d.id) ? "Most ordered" : null),
       requiresPasta: !!d.requiresPasta,
       requiresSize: !!d.requiresSize,
+      offersNoodles: offersNoodles(d),
       ageRestricted: !!d.ageRestricted,
       available: !isUnavailable(d.id),
       unavailableVariants,
@@ -3987,7 +3994,7 @@ try {
       storewidePromo: getStorewidePromo(),
       itemPromos: getItemPromos(),
       categories: CATEGORIES,
-      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize, ageRestricted: !!d.ageRestricted })),
+      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize, offersNoodles: offersNoodles(d), ageRestricted: !!d.ageRestricted })),
       removed: menuStore.listRemoved().map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category })),
       delivery: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
     }),

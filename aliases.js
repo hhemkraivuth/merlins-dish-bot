@@ -63,6 +63,7 @@ const ITEM_ALIASES = {
   extra_rigatoni: ["riga", "rigatoni"],
   extra_lumache: ["luma", "lumache"],
   extra_linguine: ["ling", "linguine"],
+  extra_risoni: ["riso", "risoni"],
   extra_spaghetti: ["spa", "spaghetti"],
 
   // Drinks
@@ -91,6 +92,7 @@ const PASTA_ALIASES = {
   rigatoni: ["rigatoni", "riga"],
   lumache: ["lumache", "luma"],
   linguine: ["linguine", "ling"],
+  risoni: ["risoni", "riso"],
   spaghetti: ["spaghetti", "spa"],
 };
 

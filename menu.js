@@ -63,6 +63,7 @@ const MENU = [
   { id: "extra_rigatoni", name: "Rigatoni (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", description: "Large ridged tubes, built for every rich sauce" },
   { id: "extra_lumache", name: "Lumache (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766580/lumache_v.jpg", description: "Snail shells, maximum sauce inside" },
   { id: "extra_linguine", name: "Linguine (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", description: "Flat, silky strands. Perfect coat" },
+  { id: "extra_risoni", name: "Risoni (Extra)", price: 40, category: "extras", image: null, description: "Rice shaped pasta, soaks up every spoonful" },
   { id: "extra_spaghetti", name: "Spaghetti (Extra)", price: 40, category: "extras", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", description: "The timeless, classic long strand" },
 
   // -- Drinks: prices pulled from the Menu Summary tab's Drinks table
@@ -89,6 +90,10 @@ const MENU = [
 //  2. The quick "add pasta on the side?" upsell offered right after
 //     adding a stew -- uses extraPrice, the same price as the Extras
 //     category items above (keep both in sync if you change a price).
+// Every main and soup also offers an OPTIONAL "pair with noodles" list in its option
+// sheet (set offersNoodles: false on a dish to switch it off). Each pick is added as
+// the matching "extra_<id>" item above at its extra price, so stock, price and
+// logging work like any extra.
 // image -- same as dishes: a direct https:// link, or null to skip the photo.
 // IMPORTANT: if you add a photo here, use the SAME image link on the
 // matching "extra_<name>" item in MENU above, so they stay consistent.
@@ -98,6 +103,7 @@ const PASTA_OPTIONS = [
   { id: "rigatoni", name: "Rigatoni", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766571/rigatoni.jpg", mandatorySurcharge: 0, extraPrice: 40 },
   { id: "lumache", name: "Lumache", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/lumache.jpeg", mandatorySurcharge: 0, extraPrice: 40 },
   { id: "linguine", name: "Linguine", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766572/linguine.png", mandatorySurcharge: 0, extraPrice: 40 },
+  { id: "risoni", name: "Risoni", image: null, mandatorySurcharge: 0, extraPrice: 40 },
   { id: "spaghetti", name: "Spaghetti", image: "https://res.cloudinary.com/x2znhtgb/image/upload/v1788766575/spaghetti.jpg", mandatorySurcharge: 0, extraPrice: 40 },
 ];
 

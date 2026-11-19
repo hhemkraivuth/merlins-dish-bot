@@ -466,7 +466,7 @@ function buildItemCard(dish) {
   card.className = "item-card" + (!dish.available ? " unavailable" : "");
   card.dataset.dish = dish.id;
 
-  const needsChoice = !!(dish.requiresSize || dish.requiresPasta);
+  const needsChoice = !!(dish.requiresSize || dish.requiresPasta || dish.offersNoodles);
 
   let stockNote = "";
   if (!dish.available) {
@@ -570,17 +570,35 @@ function refreshCardControls() {
 
 // ---------- option sheet (size / pasta, second step) ----------
 
+// The noodle the description recommends ("// Recommend pairing with Lumache."), if any.
+function recommendedNoodleId(dish) {
+  const m = /recommend pairing with ([a-z]+)/i.exec(dish.description || "");
+  if (!m) return null;
+  const hit = PASTA_OPTIONS.find((p) => p.name.toLowerCase() === m[1].toLowerCase());
+  return hit ? hit.id : null;
+}
+
+// Optional noodle pairings for a main or soup: each noodle is sold as its own "extra_<id>" menu item.
+function noodleChoices(dish) {
+  if (!dish.offersNoodles || dish.requiresPasta) return [];
+  return PASTA_OPTIONS.map((p) => ({ pasta: p, item: MENU.find((d) => d.id === `extra_${p.id}`) })).filter((x) => x.item);
+}
+
 function openOptionSheet(dish) {
   closeOptionSheet();
   const isSize = !!dish.requiresSize;
-  const options = isSize ? SIZE_OPTIONS : PASTA_OPTIONS;
+  const hasPrimary = isSize || !!dish.requiresPasta;
+  const options = isSize ? SIZE_OPTIONS : hasPrimary ? PASTA_OPTIONS : [];
   const label = isSize ? "Choose serving size" : "Choose your pasta";
   const soldOutIds = dish.unavailableVariants || [];
+  const noodles = noodleChoices(dish);
+  const recommendedId = recommendedNoodleId(dish);
   let selectedId = null;
   if (isSize) {
     const firstOpen = options.find((o) => !soldOutIds.includes(o.id));
     selectedId = firstOpen ? firstOpen.id : null;
   }
+  let noodleId = null; // optional, tapping the chosen one again clears it
   let qty = 1;
 
   const overlay = document.createElement("div");
@@ -590,7 +608,7 @@ function openOptionSheet(dish) {
     <div class="sheet-panel" role="dialog" aria-label="${dish.name}">
       <button type="button" class="sheet-close" aria-label="Close">✕</button>
       <h3 class="sheet-title">${dish.name}</h3>
-      <p class="sheet-label">${label}</p>
+      ${hasPrimary ? `<p class="sheet-label">${label}</p>
       <div class="sheet-options">
         ${options.map((o) => {
           const soldOut = soldOutIds.includes(o.id);
@@ -601,7 +619,19 @@ function openOptionSheet(dish) {
             <span class="opt-price">${sur}</span>
           </button>`;
         }).join("")}
-      </div>
+      </div>` : ""}
+      ${noodles.length ? `<p class="sheet-label sheet-label-gap">Pair with noodles <span class="sheet-optional">(optional)</span></p>
+      <div class="sheet-options sheet-noodles">
+        ${noodles.map(({ pasta, item }) => {
+          const soldOut = !item.available;
+          const rec = pasta.id === recommendedId && !soldOut ? `<span class="opt-rec">Recommended</span>` : "";
+          return `<button type="button" class="sheet-option noodle-option" data-noodle="${pasta.id}" ${soldOut ? "disabled" : ""}>
+            <span class="radio"></span>
+            <span class="opt-name">${pasta.name}${soldOut ? " (sold out)" : ""}${rec}</span>
+            <span class="opt-price">+฿${promoPrice(item, item.price)}</span>
+          </button>`;
+        }).join("")}
+      </div>` : ""}
       <div class="sheet-footer">
         <div class="stepper sheet-stepper">
           <button type="button" class="minus">−</button>
@@ -616,21 +646,36 @@ function openOptionSheet(dish) {
 
   const addBtn = overlay.querySelector(".sheet-add-btn");
   const qtyEl = overlay.querySelector(".qty");
-  const optionEls = overlay.querySelectorAll(".sheet-option");
+  const optionEls = overlay.querySelectorAll(".sheet-option[data-id]");
+  const noodleEls = overlay.querySelectorAll(".noodle-option");
 
   const surchargeFor = () => {
     const o = options.find((x) => x.id === selectedId);
     return o ? o.mandatorySurcharge || 0 : 0;
   };
+  const noodleItem = () => {
+    const n = noodles.find((x) => x.pasta.id === noodleId);
+    return n ? n.item : null;
+  };
+  const noodleUnit = () => {
+    const it = noodleItem();
+    return it ? promoPrice(it, it.price) : 0;
+  };
   const refresh = () => {
     optionEls.forEach((el) => el.classList.toggle("selected", el.dataset.id === selectedId));
+    noodleEls.forEach((el) => el.classList.toggle("selected", el.dataset.noodle === noodleId));
     qtyEl.textContent = qty;
-    addBtn.disabled = !selectedId;
-    addBtn.textContent = selectedId
-      ? `Add ฿${promoPrice(dish, dish.price + surchargeFor()) * qty}`
+    const ready = !hasPrimary || !!selectedId;
+    addBtn.disabled = !ready;
+    addBtn.textContent = ready
+      ? `Add ฿${(promoPrice(dish, dish.price + surchargeFor()) + noodleUnit()) * qty}`
       : label;
   };
   optionEls.forEach((el) => el.addEventListener("click", () => { selectedId = el.dataset.id; refresh(); }));
+  noodleEls.forEach((el) => el.addEventListener("click", () => {
+    noodleId = noodleId === el.dataset.noodle ? null : el.dataset.noodle;
+    refresh();
+  }));
   overlay.querySelector(".minus").addEventListener("click", () => { if (qty > 1) { qty -= 1; refresh(); } });
   overlay.querySelector(".plus").addEventListener("click", () => {
     const max = dish.remaining != null ? dish.remaining : Infinity;
@@ -640,16 +685,30 @@ function openOptionSheet(dish) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOptionSheet(); });
 
   addBtn.addEventListener("click", () => {
-    if (!selectedId) return;
-    const opt = options.find((o) => o.id === selectedId);
-    const surcharge = opt.mandatorySurcharge || 0;
-    const lineId = `${dish.id}:${selectedId}`;
-    const name = `${dish.name} (${opt.name})`;
-    addToCart(
-      lineId, dish.id, name, promoPrice(dish, dish.price + surcharge), qty,
-      isSize ? null : selectedId, isSize ? selectedId : undefined, dish.price + surcharge
-    );
-    showToast(`Added ${qty}x ${name}`);
+    if (hasPrimary && !selectedId) return;
+    if (hasPrimary) {
+      const opt = options.find((o) => o.id === selectedId);
+      const surcharge = opt.mandatorySurcharge || 0;
+      const lineId = `${dish.id}:${selectedId}`;
+      const name = `${dish.name} (${opt.name})`;
+      addToCart(
+        lineId, dish.id, name, promoPrice(dish, dish.price + surcharge), qty,
+        isSize ? null : selectedId, isSize ? selectedId : undefined, dish.price + surcharge
+      );
+      showToast(`Added ${qty}x ${name}`);
+    } else {
+      addToCart(dish.id, dish.id, dish.name, promoPrice(dish, dish.price), qty, null, undefined, dish.price);
+      showToast(`Added ${qty}x ${dish.name}`);
+    }
+    // One noodle portion per dish added. The noodle is its own extra line, so stock and price follow the extra.
+    const nItem = noodleItem();
+    if (nItem) {
+      const inCart = cart[nItem.id] ? cart[nItem.id].qty : 0;
+      const max = nItem.remaining != null ? nItem.remaining : Infinity;
+      const nQty = Math.min(qty, Math.max(0, max - inCart));
+      if (nQty > 0) addToCart(nItem.id, nItem.id, nItem.name, promoPrice(nItem, nItem.price), nQty, null, undefined, nItem.price);
+      if (nQty < qty) showToast(`Only ${max} of "${nItem.name}" left`);
+    }
     closeOptionSheet();
   });
   refresh();

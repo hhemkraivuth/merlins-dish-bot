@@ -176,6 +176,8 @@ function mount(app, ctx) {
       patch.requiresPasta = b.options === "pasta";
       patch.requiresSize = b.options === "size";
     }
+    // Optional "pair with noodles" list on a main or soup (separate from the compulsory pasta or size choice).
+    if (b.noodles !== undefined) patch.offersNoodles = b.noodles === true || b.noodles === "true";
     if (b.ageRestricted !== undefined) patch.ageRestricted = b.ageRestricted === true || b.ageRestricted === "true";
     const r = await ctx.menuStore.updateItem(ctx.menu, b.id, patch);
     if (!r.ok) return bad(res, "That item is not on the menu");
@@ -194,6 +196,7 @@ function mount(app, ctx) {
     const item = { id: ctx.menuStore.makeItemId(name, ctx.menu), name, price: Math.round(price), category: b.category, image, description: String(b.description || "").trim() };
     if (b.options === "pasta") item.requiresPasta = true;
     if (b.options === "size") item.requiresSize = true;
+    if (b.noodles === true || b.noodles === "true") item.offersNoodles = true;
     if (b.ageRestricted === true || b.ageRestricted === "true") item.ageRestricted = true;
     await ctx.menuStore.addItem(ctx.menu, item);
     await done(res);

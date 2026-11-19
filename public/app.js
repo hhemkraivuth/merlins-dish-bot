@@ -1309,10 +1309,10 @@ function ensureMapInitialized() {
     const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
     map = L.map("map").setView(defaultCenter, 15);
     // CARTO now needs a free key for its tiles (without one the map shows an "API KEY REQUIRED" watermark).
-    // With CARTO_KEY set on Railway we use CARTO Voyager with English labels; until then the map falls back to
+    // With CARTO_KEY set on Railway we use CARTO Positron (light_all), the style with Latin place labels (Voyager shows Thai script); until then the map falls back to
     // Esri World Street Map, which needs no key, so customers never see a blank map.
     if (SHOP_INFO.cartoKey) {
-      L.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=" + encodeURIComponent(SHOP_INFO.cartoKey), {
+      L.tileLayer("https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=" + encodeURIComponent(SHOP_INFO.cartoKey), {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
       }).addTo(map);

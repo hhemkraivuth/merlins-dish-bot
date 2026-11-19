@@ -2786,6 +2786,7 @@ app.get("/api/menu", (req, res) => {
 
 app.get("/api/shop-info", (req, res) => {
   res.json({
+    cartoKey: process.env.CARTO_KEY || null,
     shopLat: process.env.SHOP_LAT ? parseFloat(process.env.SHOP_LAT) : null,
     shopLng: process.env.SHOP_LNG ? parseFloat(process.env.SHOP_LNG) : null,
     paymentInfo: process.env.BUSINESS_PAYMENT_INFO || "our bank account",

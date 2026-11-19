@@ -1308,14 +1308,20 @@ function ensureMapInitialized() {
   try {
     const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
     map = L.map("map").setView(defaultCenter, 15);
-    // Positron tiles (English/Latin place labels) instead of default OSM
-    // tiles, which render Thai-script labels for locations in Thailand --
-    // needed so foreign customers can read and pin their location correctly.
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      subdomains: "abcd",
-    }).addTo(map);
+    // CARTO now needs a free key for its tiles (without one the map shows an "API KEY REQUIRED" watermark).
+    // With CARTO_KEY set on Railway we use CARTO Voyager with English labels; until then the map falls back to
+    // Esri World Street Map, which needs no key, so customers never see a blank map.
+    if (SHOP_INFO.cartoKey) {
+      L.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=" + encodeURIComponent(SHOP_INFO.cartoKey), {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      }).addTo(map);
+    } else {
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 19,
+        attribution: "Tiles &copy; Esri",
+      }).addTo(map);
+    }
     const redPinIcon = L.divIcon({
       className: "custom-pin-icon",
       iconSize: [36, 36],

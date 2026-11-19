@@ -2202,7 +2202,7 @@ async function handleAdminCommand(replyToken, text) {
         .map((v) => (isVariantUnavailable(d.id, v.id) ? `${v.name} 0` : `${v.name} ${remainingVariantStock(d.id, v.id)}`));
       const variantNote = variantNotes.length ? ` (${variantNotes.join(", ")})` : "";
       let status;
-      if (isUnavailable(d.id)) status = "sold out";
+      if (isUnavailable(d.id)) status = "❌";
       else if (stockCount.has(d.id)) status = `${stockCount.get(d.id)} left`;
       else status = "available";
       return `${d.name}: ${status}${variantNote}`;

@@ -1308,19 +1308,35 @@ function ensureMapInitialized() {
   try {
     const defaultCenter = [SHOP_INFO.shopLat || 13.7563, SHOP_INFO.shopLng || 100.5018];
     map = L.map("map").setView(defaultCenter, 15);
-    // CARTO now needs a free key for its tiles (without one the map shows an "API KEY REQUIRED" watermark).
-    // With CARTO_KEY set on Railway we use CARTO Positron (light_all), the style with Latin place labels (Voyager shows Thai script); until then the map falls back to
-    // Esri World Street Map, which needs no key, so customers never see a blank map.
-    if (SHOP_INFO.cartoKey) {
-      L.tileLayer("https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=" + encodeURIComponent(SHOP_INFO.cartoKey), {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      }).addTo(map);
-    } else {
-      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
-        maxZoom: 19,
-        attribution: "Tiles &copy; Esri",
-      }).addTo(map);
+    // CARTO's old raster tiles now print place names in the local script (Thai). Their vector tiles carry the
+    // English name as "name:en", so with CARTO_KEY set we draw the vector style and point every label at name:en
+    // first. Esri street tiles sit underneath as a fallback, so the map is never blank if the vector map fails.
+    const esriTiles = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+      attribution: "Tiles &copy; Esri",
+    }).addTo(map);
+    if (SHOP_INFO.cartoKey && window.maplibregl && L.maplibreGL) {
+      const key = encodeURIComponent(SHOP_INFO.cartoKey);
+      fetch("https://basemaps.cartocdn.com/gl/positron-gl-style/style.json?key=" + key)
+        .then((r) => { if (!r.ok) throw new Error("style " + r.status); return r.json(); })
+        .then((style) => {
+          (style.layers || []).forEach((layer) => {
+            const lay = layer.layout;
+            if (!lay || lay["text-field"] == null) return;
+            let orig = lay["text-field"];
+            if (typeof orig === "string") {
+              const m = orig.match(/^\{(.+)\}$/);
+              if (!m) return;
+              orig = ["get", m[1]];
+            }
+            lay["text-field"] = ["case",
+              ["all", ["has", "name:en"], ["!=", ["get", "name:en"], ""]], ["get", "name:en"],
+              orig];
+          });
+          const vec = L.maplibreGL({ style, attribution: "&copy; OpenStreetMap contributors &copy; CARTO" }).addTo(map);
+          vec.getMaplibreMap().once("load", () => map.removeLayer(esriTiles));
+        })
+        .catch((e) => console.error("Vector map failed, keeping the Esri street map:", e));
     }
     const redPinIcon = L.divIcon({
       className: "custom-pin-icon",

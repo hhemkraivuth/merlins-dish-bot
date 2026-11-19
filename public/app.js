@@ -578,10 +578,12 @@ function recommendedNoodleId(dish) {
   return hit ? hit.id : null;
 }
 
-// Optional noodle pairings for a main or soup: each noodle is sold as its own "extra_<id>" menu item.
+// Optional noodle pairings for a main or soup: each noodle is sold as its own item in the Extras category.
 function noodleChoices(dish) {
   if (!dish.offersNoodles || dish.requiresPasta) return [];
-  return PASTA_OPTIONS.map((p) => ({ pasta: p, item: MENU.find((d) => d.id === `extra_${p.id}`) })).filter((x) => x.item);
+  const extras = MENU.filter((d) => d.category === "extras");
+  const extraFor = (p) => extras.find((d) => d.id === `extra_${p.id}`) || extras.find((d) => d.name.toLowerCase().replace(/\(extra\)/, "").trim().startsWith(p.name.toLowerCase()));
+  return PASTA_OPTIONS.map((p) => ({ pasta: p, item: extraFor(p) })).filter((x) => x.item);
 }
 
 function openOptionSheet(dish) {

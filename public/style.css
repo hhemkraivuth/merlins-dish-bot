@@ -1045,3 +1045,5 @@ button, input, textarea, select {
 #age-remove-btn { margin-top: 10px; }
 .age-dob-row { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 8px; }
 .age-dob-row .text-input { text-align: center; }
+
+.slip-step { font-size: 14px; color: var(--ink); margin: 0 0 8px; }

@@ -1507,8 +1507,18 @@ function renderReviewScreen() {
       : "Scheduled: (not set)";
   document.getElementById("review-grand-total").textContent = `฿${grandTotal}`;
 
-  document.getElementById("pay-bank-info").textContent =
-    `Transfer to ${SHOP_INFO.paymentInfo || "our bank account"}`;
+  {
+    // Account name goes on its own line so it reads easily on a phone.
+    const info = SHOP_INFO.paymentInfo || "our bank account";
+    const m = info.match(/^(.*?)\s*\((.+)\)\s*$/);
+    const el = document.getElementById("pay-bank-info");
+    el.textContent = "";
+    el.append(`Transfer to ${m ? m[1] : info}`);
+    if (m) {
+      el.append(document.createElement("br"));
+      el.append(m[2]);
+    }
+  }
   const qrImg = document.getElementById("pay-qr-image");
   if (SHOP_INFO.qrImageUrl) {
     qrImg.src = SHOP_INFO.qrImageUrl;

@@ -391,7 +391,15 @@ function renderCategoryTabs() {
   CATEGORIES.forEach((cat) => {
     const btn = document.createElement("button");
     btn.className = "cat-tab";
-    btn.textContent = cat.label;
+    // Emoji on top, short name underneath, so every category fits on screen.
+    const m = String(cat.label).match(/^(\S+)\s+(.*)$/);
+    const icon = document.createElement("span");
+    icon.className = "cat-tab-icon";
+    icon.textContent = m ? m[1] : "";
+    const name = document.createElement("span");
+    name.className = "cat-tab-name";
+    name.textContent = cat.id === "mains" ? "Mains" : m ? m[2] : cat.label;
+    btn.append(icon, name);
     btn.dataset.cat = cat.id;
     btn.addEventListener("click", () => {
       const section = document.getElementById(`section-${cat.id}`);

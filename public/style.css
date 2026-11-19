@@ -1085,3 +1085,25 @@ button, input, textarea, select {
 .cart-foot .cart-contact .text-input { padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line-strong); background: #fff; }
 #cart-screen .cart-foot .cart-contact .field-group + .field-group { margin-top: 7px; }
 .cart-foot .bottom-actions { position: static; padding-top: 8px; border-top: none; box-shadow: none; }
+
+/* Category tabs: emoji above a short name, equal widths, no sideways swipe. */
+.category-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(52px, 1fr);
+  gap: 4px;
+  padding: 10px 12px 8px;
+}
+.cat-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 2px 5px;
+  min-height: 46px;
+  border-radius: 12px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.cat-tab-icon { font-size: 17px; line-height: 1.2; }
+.cat-tab-name { font-size: 11px; font-weight: 600; }

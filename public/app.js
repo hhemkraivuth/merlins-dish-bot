@@ -1320,6 +1320,14 @@ function ensureMapInitialized() {
       fetch("https://basemaps.cartocdn.com/gl/positron-gl-style/style.json?key=" + key)
         .then((r) => { if (!r.ok) throw new Error("style " + r.status); return r.json(); })
         .then((style) => {
+          // Put "name:en" first. Some labels switch on zoom with a top level "step" expression, and MapLibre only allows
+          // zoom there, so for those the English name is added inside each step output rather than around the whole thing.
+          const withEn = (expr) => {
+            if (Array.isArray(expr) && expr[0] === "step") {
+              return expr.map((part, i) => (i >= 2 && i % 2 === 0 ? withEn(part) : part));
+            }
+            return ["case", ["all", ["has", "name:en"], ["!=", ["get", "name:en"], ""]], ["get", "name:en"], expr];
+          };
           (style.layers || []).forEach((layer) => {
             const lay = layer.layout;
             if (!lay || lay["text-field"] == null) return;
@@ -1329,9 +1337,7 @@ function ensureMapInitialized() {
               if (!m) return;
               orig = ["get", m[1]];
             }
-            lay["text-field"] = ["case",
-              ["all", ["has", "name:en"], ["!=", ["get", "name:en"], ""]], ["get", "name:en"],
-              orig];
+            lay["text-field"] = withEn(orig);
           });
           // Its own pane above the Esri tiles (which sit at z-index 1 inside the tile pane), so it can never hide underneath them.
           const pane = map.createPane("vecPane");

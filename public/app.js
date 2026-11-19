@@ -1073,7 +1073,7 @@ function renderAddonsRow() {
       cell.dataset.itemId = dish.id;
       cell.innerHTML = `
         <div class="addon-in">
-          <div class="addon-name">${dish.name}</div>
+          <div class="addon-name">${dish.name.replace(/(\d)\s+(ml|g|kg|l)\b/gi, "$1\u00a0$2")}</div>
           ${dish.badge ? `<span class="addon-tag">${dish.badge}</span>` : ""}
           <div class="addon-bottom">
             <span class="addon-price">${priceHtml}</span>

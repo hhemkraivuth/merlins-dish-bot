@@ -54,6 +54,7 @@ const dayjs = require("dayjs");
 require("dayjs/plugin/utc");
 require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
+const noodleLib = require("./noodles");
 const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = require("./aliases");
 const { splitCloseReason, isPastDayRolled, removeDaysFromClosures } = require("./closeText");
 const { variantRemainingList } = require("./variantStock");
@@ -714,7 +715,7 @@ function availableInCategory(catId) {
 function buildPastaFlex(mode, itemId) {
   // mode is "pastafor" (mandatory choice tied to a specific dish) or
   // "sidepasta" (optional add-on, includes a "No thanks" card at the end).
-  const bubbles = PASTA_OPTIONS.map((p) => {
+  const bubbles = PASTA_OPTIONS.filter((p) => !(mode === "pastafor" ? p.hideInPasta : p.hideInPairing)).map((p) => {
     const data = mode === "pastafor" ? `pastafor:${itemId}:${p.id}` : `sidepasta:${p.id}`;
     const bodyContents = [{ type: "text", text: p.name, weight: "bold", size: "md", wrap: true }];
     if (mode === "sidepasta") {
@@ -2747,6 +2748,8 @@ app.get("/api/menu", (req, res) => {
       requiresPasta: !!d.requiresPasta,
       requiresSize: !!d.requiresSize,
       offersNoodles: offersNoodles(d),
+      noodleSkip: noodleLib.skippedIds(d),
+      noodleRecommend: noodleLib.recommendedIds(d, PASTA_OPTIONS),
       ageRestricted: !!d.ageRestricted,
       available: !isUnavailable(d.id),
       unavailableVariants,
@@ -3943,6 +3946,7 @@ async function persistShopSettings() {
     shopSettings.save("promos", { storewide: snap.storewide, itemPromos: snap.itemPromos }),
     shopSettings.save("hours", snap.hours),
     shopSettings.save("tiers", snap.tiers),
+    shopSettings.save("noodles", noodleLib.snapshot(PASTA_OPTIONS)),
   ]);
   return results.every(Boolean);
 }
@@ -3974,6 +3978,7 @@ try {
   adminApi.mount(app, {
     runCommand: runRelayedCommand,
     menu: MENU,
+    noodles: PASTA_OPTIONS,
     categories: CATEGORIES,
     menuStore,
     uploadMenuPhoto,
@@ -3994,7 +3999,8 @@ try {
       storewidePromo: getStorewidePromo(),
       itemPromos: getItemPromos(),
       categories: CATEGORIES,
-      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize, offersNoodles: offersNoodles(d), ageRestricted: !!d.ageRestricted })),
+      menu: MENU.map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category, description: d.description || "", available: !isUnavailable(d.id), image: d.image || null, requiresPasta: !!d.requiresPasta, requiresSize: !!d.requiresSize, offersNoodles: offersNoodles(d), noodleSkip: noodleLib.skippedIds(d), noodleRecommend: noodleLib.recommendedIds(d, PASTA_OPTIONS), ageRestricted: !!d.ageRestricted })),
+      noodles: noodleLib.snapshot(PASTA_OPTIONS),
       removed: menuStore.listRemoved().map((d) => ({ id: d.id, name: d.name, price: d.price, category: d.category })),
       delivery: { freeMin: FREE_DELIVERY_MIN, smallFee: SMALL_ORDER_FEE, ...ZONE_FEES },
     }),
@@ -4014,6 +4020,7 @@ menuStore
   .then(() => shopSettings.loadAll())
   .then((saved) => {
     // Bring back what was set before the last restart. If nothing was saved, the built in defaults stay.
+    noodleLib.applySaved(PASTA_OPTIONS, saved.noodles);
     applyShopSettings({ announcement: saved.announcement, storewide: saved.promos && saved.promos.storewide, itemPromos: saved.promos && saved.promos.itemPromos, hours: saved.hours, tiers: saved.tiers });
   })
   .catch((err) => console.error("Shop settings failed to apply:", err.message))

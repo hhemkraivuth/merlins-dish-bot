@@ -20,6 +20,7 @@ function sameToken(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+const noodleLib = require("./noodles");
 const OPTIONS = ["none", "pasta", "size"];
 const bad = (res, msg) => res.status(400).json({ error: msg });
 const num = (v) => (v === "" || v === null || v === undefined ? NaN : Number(v));
@@ -178,6 +179,10 @@ function mount(app, ctx) {
     }
     // Optional "pair with noodles" list on a main or soup (separate from the compulsory pasta or size choice).
     if (b.noodles !== undefined) patch.offersNoodles = b.noodles === true || b.noodles === "true";
+    // Which noodles this dish does not offer, and which are tagged Recommended (lists of noodle ids).
+    const dp = noodleLib.dishPatch(b, ctx.noodles);
+    if (dp.error) return bad(res, dp.error);
+    Object.assign(patch, dp.patch);
     if (b.ageRestricted !== undefined) patch.ageRestricted = b.ageRestricted === true || b.ageRestricted === "true";
     const r = await ctx.menuStore.updateItem(ctx.menu, b.id, patch);
     if (!r.ok) return bad(res, "That item is not on the menu");
@@ -216,6 +221,51 @@ function mount(app, ctx) {
   router.post("/menu/restore", wrap(async (req, res) => {
     const r = await ctx.menuStore.restoreItem(ctx.menu, (req.body || {}).id);
     if (!r.ok) return bad(res, "That item is not in the removed list");
+    await done(res);
+  }));
+
+
+  // Noodles: the pasta list used with pasta dishes and as the optional pairing on mains and soups (see noodles.js).
+  const noodleFields = (b, base) => {
+    const name = b.name !== undefined ? String(b.name).trim() : base.name;
+    if (!name) return { error: "The noodle needs a name" };
+    const sur = b.mandatorySurcharge !== undefined ? num(b.mandatorySurcharge) : base.mandatorySurcharge;
+    const extra = b.extraPrice !== undefined ? num(b.extraPrice) : base.extraPrice;
+    if (!(sur >= 0 && sur <= 500)) return { error: "The pasta dish upcharge does not look right" };
+    if (!(extra >= 0 && extra <= 5000)) return { error: "The extra price does not look right" };
+    const flag = (v, cur) => (v === undefined ? !!cur : v === true || v === "true");
+    return { name, mandatorySurcharge: Math.round(sur), extraPrice: Math.round(extra), hideInPasta: flag(b.hideInPasta, base.hideInPasta), hideInPairing: flag(b.hideInPairing, base.hideInPairing) };
+  };
+  router.post("/noodles/save", wrap(async (req, res) => {
+    const b = req.body || {};
+    const n = ctx.noodles.find((x) => x.id === b.id);
+    if (!n) return bad(res, "That noodle is not on the list");
+    const f = noodleFields(b, n);
+    if (f.error) return bad(res, f.error);
+    let image = n.image || null;
+    if (b.imageData) { const p = await photoOf(b.imageData); if (p.error) return bad(res, p.error); image = p.url; }
+    Object.assign(n, f, { image });
+    // The Extras item is what customers actually buy as a pairing, so it follows the noodle's extra price and photo.
+    const item = noodleLib.extraItemFor(n, ctx.menu);
+    if (item) await ctx.menuStore.updateItem(ctx.menu, item.id, { price: n.extraPrice, ...(b.imageData ? { image } : {}) });
+    await done(res);
+  }));
+  router.post("/noodles/add", wrap(async (req, res) => {
+    const b = req.body || {};
+    const f = noodleFields(b, { name: "", mandatorySurcharge: 0, extraPrice: 40 });
+    if (f.error) return bad(res, f.error);
+    let image = null;
+    if (b.imageData) { const p = await photoOf(b.imageData); if (p.error) return bad(res, p.error); image = p.url; }
+    const id = noodleLib.makeNoodleId(f.name, ctx.noodles);
+    ctx.noodles.push({ id, image, ...f });
+    await ctx.menuStore.addItem(ctx.menu, { id: `extra_${id}`, name: `${f.name} (Extra)`, price: f.extraPrice, category: "extras", image, description: "" });
+    await done(res);
+  }));
+  router.post("/noodles/move", wrap(async (req, res) => {
+    const b = req.body || {};
+    if (!["up", "down"].includes(b.direction)) return bad(res, "Direction must be up or down");
+    if (!ctx.noodles.some((x) => x.id === b.id)) return bad(res, "That noodle is not on the list");
+    noodleLib.move(ctx.noodles, b.id, b.direction);
     await done(res);
   }));
 

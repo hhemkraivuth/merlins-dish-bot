@@ -56,6 +56,7 @@ require("dayjs/plugin/timezone");
 const { MENU, CATEGORIES, PASTA_OPTIONS, SIZE_OPTIONS } = require("./menu");
 const noodleLib = require("./noodles");
 const aliasLib = require("./aliases");
+const stockState = require("./stockState");
 const { resolveItemId, resolveVariantId, ITEM_ALIASES, SIZE_ALIASES, PASTA_ALIASES } = aliasLib;
 const { splitCloseReason, isPastDayRolled, removeDaysFromClosures } = require("./closeText");
 const { variantRemainingList } = require("./variantStock");
@@ -3941,6 +3942,29 @@ function applyShopSettings(saved) {
   applyTiers(saved.tiers);
 }
 
+// Stock counts and sold out flags are saved to the Shop Settings tab a few seconds after any change, and once more when the
+// server is told to stop for a deploy, so a restart no longer wipes what was typed into the stock box or LINE group.
+const liveStock = () => ({ soldOut, stockCount, soldOutVariants, variantStockCount });
+let lastStockJson = null;
+let savingStock = false;
+// Saving only starts once the saved stock has been read back, so a sheet that was briefly unreachable at start up can never
+// be overwritten with an empty list.
+let stockSavingOn = false;
+async function saveStockIfChanged() {
+  if (savingStock || !stockSavingOn) return;
+  const json = JSON.stringify(stockState.snapshot(liveStock()));
+  if (json === lastStockJson) return;
+  savingStock = true;
+  try {
+    const ok = await shopSettings.save("stock", JSON.parse(json));
+    if (ok) lastStockJson = json;
+  } finally { savingStock = false; }
+}
+setInterval(() => { saveStockIfChanged().catch(() => {}); }, 5000).unref();
+for (const sig of ["SIGTERM", "SIGINT"]) {
+  process.on(sig, () => { saveStockIfChanged().catch(() => {}).finally(() => process.exit(0)); });
+}
+
 // Saves the live state, one tab row per group. Quiet and safe: never throws.
 async function persistShopSettings() {
   const snap = shopSnapshot();
@@ -4026,6 +4050,19 @@ menuStore
     // Bring back what was set before the last restart. If nothing was saved, the built in defaults stay.
     noodleLib.applySaved(PASTA_OPTIONS, saved.noodles);
     aliasLib.applyCustomAliases(saved.aliases, MENU);
+    stockState.apply(liveStock(), saved.stock);
+    lastStockJson = JSON.stringify(stockState.snapshot(liveStock()));
+    if (Object.keys(saved).length > 0) stockSavingOn = true;
+    else {
+      // Nothing came back at all, which usually means the sheet could not be read. Try once more before saving anything.
+      setTimeout(async () => {
+        const again = await shopSettings.loadAll();
+        const st = liveStock();
+        if (!st.soldOut.size && !st.stockCount.size && !st.soldOutVariants.size && !st.variantStockCount.size) stockState.apply(st, again.stock);
+        lastStockJson = JSON.stringify(stockState.snapshot(st));
+        stockSavingOn = true;
+      }, 20000).unref();
+    }
     applyShopSettings({ announcement: saved.announcement, storewide: saved.promos && saved.promos.storewide, itemPromos: saved.promos && saved.promos.itemPromos, hours: saved.hours, tiers: saved.tiers });
   })
   .catch((err) => console.error("Shop settings failed to apply:", err.message))

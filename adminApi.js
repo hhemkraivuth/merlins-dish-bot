@@ -149,6 +149,12 @@ function mount(app, ctx) {
   };
   router.post("/menu/image", wrap(async (req, res) => {
     const b = req.body || {};
+    // remove: true takes the photo off the dish, so customers see it without a picture.
+    if (b.remove === true) {
+      const gone = await ctx.menuStore.updateItem(ctx.menu, b.id, { image: null });
+      if (!gone.ok) return bad(res, "That item is not on the menu");
+      return done(res);
+    }
     const p = await photoOf(b.data);
     if (p.error) return bad(res, p.error);
     const r = await ctx.menuStore.updateItem(ctx.menu, b.id, { image: p.url });

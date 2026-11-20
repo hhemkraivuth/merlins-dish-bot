@@ -435,7 +435,20 @@ function renderItemList() {
     heading.textContent = cat.label;
     list.appendChild(heading);
 
-    items.forEach((dish) => list.appendChild(buildItemCard(dish)));
+    // Items sharing a "group" in this category (for example Coke Original and Coke Zero Zero) show as one card.
+    // The group card sits where its first item sits, and its sheet adds the flavour the customer picks.
+    const groupCount = new Map();
+    items.forEach((d) => { if (d.group) groupCount.set(d.group, (groupCount.get(d.group) || 0) + 1); });
+    const done = new Set();
+    items.forEach((dish) => {
+      if (dish.group && groupCount.get(dish.group) > 1) {
+        if (done.has(dish.group)) return;
+        done.add(dish.group);
+        list.appendChild(buildItemCard(groupDish(dish.group, items.filter((d) => d.group === dish.group))));
+      } else {
+        list.appendChild(buildItemCard(dish));
+      }
+    });
   });
 
   setupSectionScrollSpy();
@@ -469,12 +482,33 @@ function dishCartQty(dishId) {
   return cartLines().filter((l) => l.itemId === dishId).reduce((n, l) => n + l.qty, 0);
 }
 
+// A stand-in card for several items shown under one name. Each member stays a real menu item, so stock,
+// sold out, prices, promos and the books all keep working per item.
+function groupDish(name, members) {
+  const open = members.filter((m) => m.available);
+  const pick = open.find((m) => m.image) || members.find((m) => m.image) || members[0];
+  return {
+    id: `group:${name}`,
+    name,
+    price: Math.min(...members.map((m) => m.price)),
+    image: pick.image || null,
+    description: members.map((m) => m.name).join("<br>"), // small line under the headline so customers see there are options
+    badge: null,
+    available: open.length > 0,
+    remaining: null,
+    promoPercentOff: null,
+    groupMembers: members,
+  };
+}
+
 function buildItemCard(dish) {
   const card = document.createElement("div");
   card.className = "item-card" + (!dish.available ? " unavailable" : "");
   card.dataset.dish = dish.id;
 
-  const needsChoice = !!(dish.requiresSize || dish.requiresPasta || dish.offersNoodles);
+  const isGroup = !!dish.groupMembers;
+  const groupQty = () => dish.groupMembers.reduce((n, m) => n + dishCartQty(m.id), 0);
+  const needsChoice = isGroup || !!(dish.requiresSize || dish.requiresPasta || dish.offersNoodles);
 
   let stockNote = "";
   if (!dish.available) {
@@ -485,6 +519,7 @@ function buildItemCard(dish) {
   }
 
   const priceTag = (basePrice) => {
+    if (isGroup) return `<p class="item-price">${dish.groupMembers.some((m) => m.price !== basePrice) ? "from " : ""}฿${basePrice}</p>`;
     if (dish.promoPercentOff == null || !dish.promoIsItemSpecific) return `<p class="item-price">฿${basePrice}</p>`;
     return `<p class="item-price"><span class="item-price-was">฿${basePrice}</span> ฿${promoPrice(dish, basePrice)} <span class="item-promo-badge">${dish.promoPercentOff}% off</span></p>`;
   };
@@ -493,7 +528,7 @@ function buildItemCard(dish) {
     ? `<img class="item-img" src="${dish.image}" alt="${dish.name}" loading="lazy" />`
     : `<div class="item-img placeholder">🍽️</div>`;
 
-  const longDesc = dish.description && dish.description.length > DESCRIPTION_SEE_MORE_CHARS;
+  const longDesc = !dish.groupMembers && dish.description && dish.description.length > DESCRIPTION_SEE_MORE_CHARS;
 
   card.innerHTML = `
     <div class="item-photo">${img}</div>
@@ -521,14 +556,14 @@ function buildItemCard(dish) {
 
   const control = card.querySelector(".item-control");
   card._renderControl = () => {
-    const qty = dishCartQty(dish.id);
+    const qty = isGroup ? groupQty() : dishCartQty(dish.id);
     if (!dish.available) {
       control.innerHTML = "";
       return;
     }
     if (needsChoice) {
       control.innerHTML = `<button type="button" class="add-circle" aria-label="Choose options for ${dish.name}">+${qty > 0 ? `<span class="add-badge">${qty}</span>` : ""}</button>`;
-      control.querySelector(".add-circle").addEventListener("click", () => openOptionSheet(dish));
+      control.querySelector(".add-circle").addEventListener("click", () => (isGroup ? openGroupSheet(dish) : openOptionSheet(dish)));
       return;
     }
     if (qty === 0) {
@@ -729,6 +764,74 @@ function openOptionSheet(dish) {
       if (nQty > 0) addToCart(nItem.id, nItem.id, nItem.name, promoPrice(nItem, nItem.price), nQty, null, undefined, nItem.price);
       if (nQty < qty) showToast(`Only ${max} of "${nItem.name}" left`);
     }
+    closeOptionSheet();
+  });
+  refresh();
+}
+
+// Sheet for a grouped card: pick the flavour, then add it as its own menu item.
+function openGroupSheet(group) {
+  closeOptionSheet();
+  const members = group.groupMembers;
+  let selectedId = (members.find((m) => m.available) || {}).id || null;
+  let qty = 1;
+
+  const overlay = document.createElement("div");
+  overlay.className = "sheet-overlay";
+  overlay.id = "option-sheet";
+  overlay.innerHTML = `
+    <div class="sheet-panel" role="dialog" aria-label="${group.name}">
+      <button type="button" class="sheet-close" aria-label="Close">✕</button>
+      <h3 class="sheet-title">${group.name}</h3>
+      <p class="sheet-label">Choose one</p>
+      <div class="sheet-options">
+        ${members.map((m) => `<button type="button" class="sheet-option" data-id="${m.id}" ${m.available ? "" : "disabled"}>
+            <span class="radio"></span>
+            <span class="opt-name">${m.name}${m.available ? "" : " (sold out)"}</span>
+            <span class="opt-price">฿${promoPrice(m, m.price)}</span>
+          </button>`).join("")}
+      </div>
+      <div class="sheet-footer">
+        <div class="stepper sheet-stepper">
+          <button type="button" class="minus">−</button>
+          <span class="qty">1</span>
+          <button type="button" class="plus">+</button>
+        </div>
+        <button type="button" class="sheet-add-btn" disabled>Add</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const addBtn = overlay.querySelector(".sheet-add-btn");
+  const qtyEl = overlay.querySelector(".qty");
+  const optionEls = overlay.querySelectorAll(".sheet-option[data-id]");
+  const chosen = () => members.find((m) => m.id === selectedId);
+  const refresh = () => {
+    optionEls.forEach((el) => el.classList.toggle("selected", el.dataset.id === selectedId));
+    qtyEl.textContent = qty;
+    const m = chosen();
+    addBtn.disabled = !m;
+    addBtn.textContent = m ? `Add ฿${promoPrice(m, m.price) * qty}` : "Choose one";
+  };
+  optionEls.forEach((el) => el.addEventListener("click", () => { selectedId = el.dataset.id; qty = 1; refresh(); }));
+  overlay.querySelector(".minus").addEventListener("click", () => { if (qty > 1) { qty -= 1; refresh(); } });
+  overlay.querySelector(".plus").addEventListener("click", () => {
+    const m = chosen();
+    const inCart = m && cart[m.id] ? cart[m.id].qty : 0;
+    const max = m && m.remaining != null ? m.remaining - inCart : Infinity;
+    if (qty < max) { qty += 1; refresh(); } else if (m) showToast(`Only ${m.remaining} of "${m.name}" left`);
+  });
+  overlay.querySelector(".sheet-close").addEventListener("click", closeOptionSheet);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeOptionSheet(); });
+  addBtn.addEventListener("click", () => {
+    const m = chosen();
+    if (!m) return;
+    const inCart = cart[m.id] ? cart[m.id].qty : 0;
+    const max = m.remaining != null ? m.remaining : Infinity;
+    if (inCart + qty > max) { showToast(`Only ${max} of "${m.name}" left`); return; }
+    addToCart(m.id, m.id, m.name, promoPrice(m, m.price), qty, null, undefined, m.price);
+    showToast(`Added ${qty}x ${m.name}`);
     closeOptionSheet();
   });
   refresh();

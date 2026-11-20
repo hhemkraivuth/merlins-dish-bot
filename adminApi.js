@@ -190,6 +190,8 @@ function mount(app, ctx) {
     const dp = noodleLib.dishPatch(b, ctx.noodles);
     if (dp.error) return bad(res, dp.error);
     Object.assign(patch, dp.patch);
+    // "Show under": items sharing the same name here show as one card on the order web (empty = on its own).
+    if (b.group !== undefined) patch.group = String(b.group).trim().slice(0, 40) || null;
     if (b.ageRestricted !== undefined) patch.ageRestricted = b.ageRestricted === true || b.ageRestricted === "true";
     const r = await ctx.menuStore.updateItem(ctx.menu, b.id, patch);
     if (!r.ok) return bad(res, "That item is not on the menu");

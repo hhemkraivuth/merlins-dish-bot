@@ -1,0 +1,63 @@
+:root { --xm-g: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2040%2044%22%3E%3Cpath%20d%3D%22M20%202a7%207%200%200%201%206.5%209.6L36%2014a3.5%203.5%200%200%201%200%207l-8%201%206%2015a3.5%203.5%200%200%201-6.5%202.5L20%2029l-7.5%2011.5A3.5%203.5%200%200%201%206%2037l6-15-8-1a3.5%203.5%200%200%201%200-7l9.5-2.4A7%207%200%200%201%2020%202z%22%20fill%3D%22%23C98A4B%22%2F%3E%3Ccircle%20cx%3D%2217.3%22%20cy%3D%228%22%20r%3D%221.2%22%20fill%3D%22%231B2559%22%2F%3E%3Ccircle%20cx%3D%2222.7%22%20cy%3D%228%22%20r%3D%221.2%22%20fill%3D%22%231B2559%22%2F%3E%3Cpath%20d%3D%22M17%2011.2q3%202.6%206%200%22%20stroke%3D%22%231B2559%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2218%22%20r%3D%221.7%22%20fill%3D%22%23E63D23%22%2F%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2223.5%22%20r%3D%221.7%22%20fill%3D%22%23294BD4%22%2F%3E%3Cpath%20d%3D%22M5%2017.5q3%202%206%200M29%2017.5q3%202%206%200M9%2036.5q2-3%205-3.5M31%2036.5q-2-3-5-3.5%22%20stroke%3D%22%23FFF7EE%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E"); --xm-r: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2044%2042%22%3E%3Cpath%20d%3D%22M13%2016C9%2011%206%207%205%203M9%2010l-5%200M31%2016c4-5%207-9%208-13M35%2010l5%200M15%2014c-1-3-3-5-5-6M29%2014c1-3%203-5%205-6%22%20stroke%3D%22%238A5A2B%22%20stroke-width%3D%222.4%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%2F%3E%3Cellipse%20cx%3D%229%22%20cy%3D%2219%22%20rx%3D%224%22%20ry%3D%222.4%22%20fill%3D%22%23C98A4B%22%20transform%3D%22rotate%28-25%209%2019%29%22%2F%3E%3Cellipse%20cx%3D%2235%22%20cy%3D%2219%22%20rx%3D%224%22%20ry%3D%222.4%22%20fill%3D%22%23C98A4B%22%20transform%3D%22rotate%2825%2035%2019%29%22%2F%3E%3Cpath%20d%3D%22M22%2016c9%200%2013%206%2011%2014-1.5%206-6%209-11%209s-9.5-3-11-9c-2-8%202-14%2011-14z%22%20fill%3D%22%23C98A4B%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2225%22%20r%3D%221.8%22%20fill%3D%22%231B2559%22%2F%3E%3Ccircle%20cx%3D%2227%22%20cy%3D%2225%22%20r%3D%221.8%22%20fill%3D%22%231B2559%22%2F%3E%3Ccircle%20cx%3D%2222%22%20cy%3D%2234%22%20r%3D%224.2%22%20fill%3D%22%23E63D23%22%2F%3E%3C%2Fsvg%3E"); --xm-n: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2028%2048%22%3E%3Crect%20x%3D%227%22%20y%3D%221%22%20width%3D%2214%22%20height%3D%2214%22%20rx%3D%222%22%20fill%3D%22%23E63D23%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%2210%22%20width%3D%2214%22%20height%3D%223%22%20fill%3D%22%23F8CC1A%22%2F%3E%3Ccircle%20cx%3D%2214%22%20cy%3D%2219%22%20r%3D%225.6%22%20fill%3D%22%23F6C9A0%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2218%22%20r%3D%22.9%22%20fill%3D%22%231B2559%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2218%22%20r%3D%22.9%22%20fill%3D%22%231B2559%22%2F%3E%3Cpath%20d%3D%22M8.6%2021c1%205%203.4%207%205.4%207s4.4-2%205.4-7c-1.6%202-3.6%202.6-5.4%202.6S10.2%2023%208.6%2021z%22%20fill%3D%22%23fff%22%2F%3E%3Crect%20x%3D%225%22%20y%3D%2227%22%20width%3D%2218%22%20height%3D%2213%22%20rx%3D%223%22%20fill%3D%22%23E63D23%22%2F%3E%3Crect%20x%3D%2212.8%22%20y%3D%2227%22%20width%3D%222.4%22%20height%3D%2213%22%20fill%3D%22%23F8CC1A%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2232%22%20r%3D%221.1%22%20fill%3D%22%23F8CC1A%22%2F%3E%3Ccircle%20cx%3D%2218%22%20cy%3D%2232%22%20r%3D%221.1%22%20fill%3D%22%23F8CC1A%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%2240%22%20width%3D%225%22%20height%3D%226%22%20fill%3D%22%23294BD4%22%2F%3E%3Crect%20x%3D%2216%22%20y%3D%2240%22%20width%3D%225%22%20height%3D%226%22%20fill%3D%22%23294BD4%22%2F%3E%3Crect%20x%3D%226%22%20y%3D%2245%22%20width%3D%227%22%20height%3D%223%22%20rx%3D%221%22%20fill%3D%22%231B2559%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%2245%22%20width%3D%227%22%20height%3D%223%22%20rx%3D%221%22%20fill%3D%22%231B2559%22%2F%3E%3C%2Fsvg%3E"); --xm-star: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M12%201l3.1%207%207.6.7-5.8%205%201.8%207.5L12%2017.3%205.3%2021.2l1.8-7.5-5.8-5L8.9%208z%22%20fill%3D%22%23F8CC1A%22%2F%3E%3C%2Fsvg%3E"); --xm-wire: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2264%22%20height%3D%2222%22%20viewBox%3D%220%200%2064%2022%22%3E%3Cpath%20d%3D%22M0%203Q16%2012%2032%203T64%203%22%20fill%3D%22none%22%20stroke%3D%22%231B2559%22%20stroke-width%3D%221.4%22%2F%3E%3Ccircle%20cx%3D%228%22%20cy%3D%229.2%22%20r%3D%224%22%20fill%3D%22%23F8CC1A%22%2F%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2210%22%20r%3D%224%22%20fill%3D%22%2363CBC6%22%2F%3E%3Ccircle%20cx%3D%2240%22%20cy%3D%229.2%22%20r%3D%224%22%20fill%3D%22%23294BD4%22%2F%3E%3Ccircle%20cx%3D%2256%22%20cy%3D%2210%22%20r%3D%224%22%20fill%3D%22%23FFF7EE%22%20stroke%3D%22%231B2559%22%20stroke-width%3D%22.6%22%2F%3E%3C%2Fsvg%3E"); }
+/* Seasonal decoration layer. Switched on by xmas.js (html[data-xmas]). Decoration only: no layout, flow or data changes. */
+.xm-snow { position: fixed; inset: 0; pointer-events: none; z-index: 80; overflow: hidden; }
+.xm-snow i { position: absolute; top: -24px; font-style: normal; color: rgba(41,75,212,.28); animation: xmfall linear infinite; }
+@keyframes xmfall { to { transform: translateY(110vh) rotate(180deg); } }
+@media (prefers-reduced-motion: reduce) { .xm-snow { display: none; } }
+
+/* fairy lights under every header */
+html[data-xmas] .topbar::after, html[data-xmas] .subbar::after {
+  content: ""; position: absolute; left: 0; right: 0; top: calc(100% - 6px); height: 20px;
+  background: var(--xm-wire) repeat-x; pointer-events: none; z-index: 60;
+}
+html[data-xmas] .topbar { z-index: 30; }
+
+/* santa hats */
+html[data-xmas] .xm-hat { position: absolute; pointer-events: none; }
+html[data-xmas] .brand-mark { position: relative; }
+html[data-xmas] .brand-mark .xm-hat { width: 24px; top: -12px; left: -6px; transform: rotate(-14deg); }
+html[data-xmas] .intro-card .xm-hat { width: 46px; top: -54px; left: calc(50% - 27px); transform: rotate(-16deg); z-index: 5; }
+
+/* menu */
+html[data-xmas] .direct-order-banner { border-top: 5px solid transparent; border-image: repeating-linear-gradient(135deg,#E63D23 0 8px,#FFF7EE 8px 16px) 5; }
+html[data-xmas] .cat-tab.active { position: relative; }
+html[data-xmas] .cat-tab.active::after { content: ""; position: absolute; top: -7px; right: -4px; width: 16px; height: 16px; background: var(--xm-star) center/contain no-repeat; }
+html[data-xmas] .intro-card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 12px; background: radial-gradient(circle at 10px 0,#fff 9.5px,transparent 10px) repeat-x; background-size: 20px 12px; border-radius: 20px 20px 0 0; pointer-events: none; }
+html[data-xmas] .category-heading::after { content: ""; display: inline-block; width: 28px; height: 30px; margin-left: 8px; vertical-align: -8px; background: var(--xm-g) center/contain no-repeat; }
+html[data-xmas] .item-card { position: relative; }
+html[data-xmas] .item-card::after { content: ""; position: absolute; top: -12px; left: 84px; width: 34px; height: 36px; background: var(--xm-g) center/contain no-repeat; pointer-events: none; z-index: 2; }
+html[data-xmas] .item-card:nth-child(3n+2)::after { background-image: var(--xm-r); }
+html[data-xmas] .item-card:nth-child(3n)::after { background-image: var(--xm-n); width: 22px; height: 38px; left: 96px; }
+
+/* order sheet, cart, delivery, review */
+html[data-xmas] .sheet-title::after, html[data-xmas] .subbar h2::after { content: ""; display: inline-block; width: 34px; height: 36px; margin-left: 8px; vertical-align: -10px; background: var(--xm-g) center/contain no-repeat; }
+html[data-xmas] .sheet-title::after, html[data-xmas] #delivery-screen .subbar h2::after { background-image: var(--xm-r); width: 40px; }
+html[data-xmas] #review-screen .subbar h2::after { background-image: var(--xm-n); width: 24px; height: 40px; }
+html[data-xmas] .addons-title::before, html[data-xmas] .rate-title::before { content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; background: var(--xm-star) center/contain no-repeat; }
+html[data-xmas] .btn-primary { position: relative; overflow: hidden; }
+html[data-xmas] .btn-primary::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; background: radial-gradient(circle at 7px 0,#fff 6px,transparent 6.5px) repeat-x; background-size: 14px 7px; pointer-events: none; }
+html[data-xmas] .summary-card { position: relative; }
+html[data-xmas] .summary-card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; border-radius: 12px 12px 0 0; background: repeating-linear-gradient(135deg,#E63D23 0 8px,#FFF7EE 8px 16px); }
+
+/* confirmation */
+html[data-xmas] #confirm-title { line-height: 1.15; }
+.xm-row { display: none; justify-content: center; align-items: flex-end; gap: 12px; height: 64px; margin: 0 auto 8px; }
+.xm-row span { display: block; background: center/contain no-repeat; }
+.xm-row span:nth-child(1) { width: 50px; height: 44px; background-image: var(--xm-r); }
+.xm-row span:nth-child(2) { width: 46px; height: 50px; background-image: var(--xm-g); }
+.xm-row span:nth-child(3) { width: 30px; height: 60px; background-image: var(--xm-n); }
+html[data-xmas="xmas"] #confirm-screen .confirm-badge { display: none; }
+html[data-xmas="xmas"] #confirm-screen .xm-row { display: flex; }
+.xm-confetti { display: none; position: fixed; left: 0; right: 0; top: 0; height: 230px; pointer-events: none; z-index: 55; overflow: hidden; }
+.xm-confetti span { position: absolute; border-radius: 2px; }
+html[data-xmas="xmas"] #confirm-screen.active .xm-confetti { display: block; }
+
+/* New Year: characters and hats rest, lights and snow stay, closed screen gets fireworks */
+html[data-xmas="ny"] .xm-hat, html[data-xmas="ny"] .item-card::after, html[data-xmas="ny"] .category-heading::after,
+html[data-xmas="ny"] .sheet-title::after, html[data-xmas="ny"] .subbar h2::after { display: none; }
+.xm-nut { display: none; width: 44px; height: 84px; margin: 0 auto; background: var(--xm-n) center/contain no-repeat; }
+html[data-xmas="ny"] #closed-screen .confirm-badge { display: none; }
+html[data-xmas="ny"] #closed-screen .xm-nut { display: block; }
+.xm-sparks { display: none; position: fixed; left: 0; right: 0; top: 0; height: 300px; pointer-events: none; z-index: 55; }
+.xm-sparks span { position: absolute; opacity: .85; }
+html[data-xmas="ny"] #closed-screen.active .xm-sparks { display: block; }

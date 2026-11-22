@@ -23,11 +23,7 @@ html[data-xmas] .direct-order-banner { border-top: 5px solid transparent; border
 html[data-xmas] .cat-tab.active { position: relative; }
 html[data-xmas] .cat-tab.active::after { content: ""; position: absolute; top: -7px; right: -4px; width: 16px; height: 16px; background: var(--xm-star) center/contain no-repeat; }
 html[data-xmas] .intro-card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 12px; background: radial-gradient(circle at 10px 0,#fff 9.5px,transparent 10px) repeat-x; background-size: 20px 12px; border-radius: 20px 20px 0 0; pointer-events: none; }
-html[data-xmas] .category-heading::after { content: ""; display: inline-block; width: 28px; height: 30px; margin-left: 8px; vertical-align: -8px; background: var(--xm-g) center/contain no-repeat; }
 html[data-xmas] .item-card { position: relative; }
-html[data-xmas] .item-card::after { content: ""; position: absolute; top: -12px; left: 84px; width: 34px; height: 36px; background: var(--xm-g) center/contain no-repeat; pointer-events: none; z-index: 2; }
-html[data-xmas] .item-card:nth-child(3n+2)::after { background-image: var(--xm-r); }
-html[data-xmas] .item-card:nth-child(3n)::after { background-image: var(--xm-n); width: 22px; height: 38px; left: 96px; }
 
 /* order sheet, cart, delivery, review */
 html[data-xmas] .sheet-title::after, html[data-xmas] .subbar h2::after { content: ""; display: inline-block; width: 34px; height: 36px; margin-left: 8px; vertical-align: -10px; background: var(--xm-g) center/contain no-repeat; }
@@ -53,7 +49,7 @@ html[data-xmas]:not([data-xmas="ny"]) #confirm-screen .xm-row { display: flex; }
 html[data-xmas]:not([data-xmas="ny"]) #confirm-screen.active .xm-confetti { display: block; }
 
 /* New Year: characters and hats rest, lights and snow stay, closed screen gets fireworks */
-html[data-xmas="ny"] .xm-hat, html[data-xmas="ny"] .item-card::after, html[data-xmas="ny"] .category-heading::after,
+html[data-xmas="ny"] .xm-hat, html[data-xmas="ny"] .xm-char,
 html[data-xmas="ny"] .sheet-title::after, html[data-xmas="ny"] .subbar h2::after { display: none; }
 .xm-nut { display: none; width: 44px; height: 84px; margin: 0 auto; background: var(--xm-n) center/contain no-repeat; }
 html[data-xmas="ny"] #closed-screen .confirm-badge { display: none; }
@@ -62,3 +58,9 @@ html[data-xmas="ny"] #closed-screen .xm-nut { display: block; }
 .xm-sparks span { position: absolute; opacity: .85; }
 html[data-xmas="ny"] #closed-screen.active .xm-sparks { display: block; }
 html[data-xmas="both"] #menu-screen.active .xm-sparks-menu { display: block; height: 150px; opacity: .8; }
+
+/* characters peeking over dish photos: placed by xmas.js, a few cards only, never touching each other */
+.xm-char { position: absolute; width: 34px; height: 36px; background: center/contain no-repeat; pointer-events: none; z-index: 2; }
+.xm-char[data-c="g"] { background-image: var(--xm-g); }
+.xm-char[data-c="r"] { background-image: var(--xm-r); width: 38px; height: 36px; }
+.xm-char[data-c="n"] { background-image: var(--xm-n); width: 22px; height: 40px; }

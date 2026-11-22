@@ -32,6 +32,39 @@
     return sp + "</div>";
   }
 
+  // A few dish cards get a character peeking over a corner of the photo. Random per visit,
+  // never on neighbouring cards, never in the same spot twice in a row.
+  function decorateCards() {
+    const list = document.getElementById("item-list");
+    if (!list) return;
+    let seed = 0;
+    try {
+      seed = Number(sessionStorage.getItem("xmSeed"));
+      if (!seed) { seed = Math.floor(Math.random() * 1e9) + 1; sessionStorage.setItem("xmSeed", String(seed)); }
+    } catch (e) { seed = 12345; }
+    let state = seed;
+    const rnd = () => { state = (state * 1664525 + 1013904223) % 4294967296; return state / 4294967296; };
+    const corners = [[-4, -16], [88, -16], [-8, 98], [92, 98]]; // [left, top] around the 112px photo
+    let sinceLast = 9, lastChar = "";
+    list.querySelectorAll(".item-card").forEach((card) => {
+      card.querySelector(".xm-char")?.remove();
+      const roll = rnd();
+      const pickC = rnd(), pickPos = rnd(), jx = rnd(), jy = rnd(), rot = rnd();
+      sinceLast++;
+      if (sinceLast < 3 || roll > 0.42) return;
+      const set = ["g", "r", "n"].filter((k) => k !== lastChar);
+      const c = set[Math.floor(pickC * set.length)];
+      const [l, t] = corners[Math.floor(pickPos * corners.length)];
+      const el = document.createElement("span");
+      el.className = "xm-char"; el.dataset.c = c; el.setAttribute("aria-hidden", "true");
+      el.style.left = (l + Math.round(jx * 10 - 5)) + "px";
+      el.style.top = (t + Math.round(jy * 8 - 4)) + "px";
+      el.style.transform = "rotate(" + Math.round(rot * 24 - 12) + "deg)";
+      card.appendChild(el);
+      sinceLast = 0; lastChar = c;
+    });
+  }
+
   function build() {
     // snowfall
     let sn = '<div class="xm-snow" aria-hidden="true">';
@@ -45,6 +78,11 @@
       if (bm) bm.insertAdjacentHTML("beforeend", hat);
       const ic = document.getElementById("intro-card");
       if (ic) ic.insertAdjacentHTML("beforeend", hat);
+      const il = document.getElementById("item-list");
+      if (il) {
+        decorateCards();
+        new MutationObserver(decorateCards).observe(il, { childList: true });
+      }
       const tag = document.querySelector(".topbar .brand p");
       if (tag) tag.textContent = tag.textContent.replace("✨", mode === "both" ? "🎄🎆" : "🎄");
 

@@ -1,7 +1,8 @@
 // Seasonal decoration (Christmas, then New Year). Decoration only. Dates are Bangkok time.
-//   01/12/2026 to 25/12/2026  Christmas
-//   26/12/2026 to 03/01/2027  New Year
-// Preview any time with ?xmas=1 (Christmas), ?xmas=ny (New Year), ?xmas=0 (off). To remove the whole layer, delete the two xmas tags in index.html.
+//   23/11/2026 to 12/12/2026  Christmas
+//   13/12/2026 to 25/12/2026  Christmas and New Year together
+//   26/12/2026 to 15/01/2027  New Year only
+// Preview any time with ?xmas=1 (Christmas), ?xmas=both, ?xmas=ny (New Year), ?xmas=0 (off). To remove the whole layer, delete the two xmas tags in index.html.
 (function () {
   const COLS = ["#E63D23", "#294BD4", "#F8CC1A", "#63CBC6"];
   const q = new URLSearchParams(location.search).get("xmas");
@@ -10,15 +11,26 @@
   try { if (override === null) override = sessionStorage.getItem("xmasMode"); } catch (e) {}
   const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
   let mode = null;
-  if (today >= "2026-12-01" && today <= "2026-12-25") mode = "xmas";
-  else if (today >= "2026-12-26" && today <= "2027-01-03") mode = "ny";
+  if (today >= "2026-11-23" && today <= "2026-12-12") mode = "xmas";
+  else if (today >= "2026-12-13" && today <= "2026-12-25") mode = "both";
+  else if (today >= "2026-12-26" && today <= "2027-01-15") mode = "ny";
   if (override === "1") mode = "xmas";
+  else if (override === "both") mode = "both";
   else if (override === "ny") mode = "ny";
   else if (override === "0") mode = null;
   if (!mode) return;
   document.documentElement.dataset.xmas = mode;
 
   const hat = '<svg class="xm-hat" viewBox="0 0 44 38" aria-hidden="true"><path d="M6 30C8 12 20 3 36 6c-8 3-9 10-6 24z" fill="#B3200C"/><rect x="2" y="27" width="40" height="9" rx="4.5" fill="#fff"/><circle cx="37" cy="6" r="5" fill="#fff"/></svg>';
+
+  function sparks(cls) {
+    let sp = `<div class="xm-sparks ${cls}" aria-hidden="true">`;
+    for (let i = 0; i < 14; i++) {
+      const x = ((i * 61 + 8) % 92) + 2, y = (i * 37 + 5) % 70, s = 14 + (i % 4) * 7;
+      sp += `<span style="left:${x}%;top:${y}%;font-size:${s}px;color:${COLS[i % 4]}">${i % 2 ? "✦" : "✺"}</span>`;
+    }
+    return sp + "</div>";
+  }
 
   function build() {
     // snowfall
@@ -28,13 +40,13 @@
     }
     document.body.insertAdjacentHTML("beforeend", sn + "</div>");
 
-    if (mode === "xmas") {
+    if (mode === "xmas" || mode === "both") {
       const bm = document.querySelector(".brand-mark");
       if (bm) bm.insertAdjacentHTML("beforeend", hat);
       const ic = document.getElementById("intro-card");
       if (ic) ic.insertAdjacentHTML("beforeend", hat);
       const tag = document.querySelector(".topbar .brand p");
-      if (tag) tag.textContent = tag.textContent.replace("✨", "🎄");
+      if (tag) tag.textContent = tag.textContent.replace("✨", mode === "both" ? "🎄🎆" : "🎄");
 
       // confirmation: characters row and confetti
       const badge = document.querySelector("#confirm-screen .confirm-badge");
@@ -52,7 +64,7 @@
       const t = document.getElementById("confirm-title");
       if (t) {
         const fix = () => {
-          if (t.textContent === "Order placed!") t.innerHTML = "Order placed!<br>Merry Christmas.";
+          if (t.textContent === "Order placed!") t.innerHTML = mode === "both" ? "Order placed!<br>Merry Christmas<br>&amp; Happy New Year!" : "Order placed!<br>Merry Christmas.";
         };
         new MutationObserver(fix).observe(t, { childList: true, characterData: true, subtree: true });
         fix();
@@ -65,20 +77,20 @@
         };
         fixm();
       }
+      if (mode === "both") {
+        // New Year touches arrive: sparkles over the menu header
+        const ms = document.getElementById("menu-screen");
+        if (ms) ms.insertAdjacentHTML("beforeend", sparks("xm-sparks-menu"));
+      }
     } else {
-      // New Year closed screen
+      // New Year only: closed screen
       const closed = document.getElementById("closed-screen");
       if (closed) {
         const badge = closed.querySelector(".confirm-badge");
         if (badge) badge.insertAdjacentHTML("afterend", '<div class="xm-nut" aria-hidden="true"></div>');
         const h = closed.querySelector("h2");
         if (h) h.innerHTML = "We're closed.<br>Happy New Year!";
-        let sp = '<div class="xm-sparks" aria-hidden="true">';
-        for (let i = 0; i < 14; i++) {
-          const x = ((i * 61 + 8) % 92) + 2, y = (i * 37 + 5) % 70, s = 14 + (i % 4) * 7;
-          sp += `<span style="left:${x}%;top:${y}%;font-size:${s}px;color:${COLS[i % 4]}">${i % 2 ? "✦" : "✺"}</span>`;
-        }
-        closed.insertAdjacentHTML("beforeend", sp + "</div>");
+        closed.insertAdjacentHTML("beforeend", sparks(""));
       }
     }
   }

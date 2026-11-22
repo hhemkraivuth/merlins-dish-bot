@@ -46,11 +46,11 @@ html[data-xmas] #confirm-title { line-height: 1.15; }
 .xm-row span:nth-child(1) { width: 50px; height: 44px; background-image: var(--xm-r); }
 .xm-row span:nth-child(2) { width: 46px; height: 50px; background-image: var(--xm-g); }
 .xm-row span:nth-child(3) { width: 30px; height: 60px; background-image: var(--xm-n); }
-html[data-xmas="xmas"] #confirm-screen .confirm-badge { display: none; }
-html[data-xmas="xmas"] #confirm-screen .xm-row { display: flex; }
+html[data-xmas]:not([data-xmas="ny"]) #confirm-screen .confirm-badge { display: none; }
+html[data-xmas]:not([data-xmas="ny"]) #confirm-screen .xm-row { display: flex; }
 .xm-confetti { display: none; position: fixed; left: 0; right: 0; top: 0; height: 230px; pointer-events: none; z-index: 55; overflow: hidden; }
 .xm-confetti span { position: absolute; border-radius: 2px; }
-html[data-xmas="xmas"] #confirm-screen.active .xm-confetti { display: block; }
+html[data-xmas]:not([data-xmas="ny"]) #confirm-screen.active .xm-confetti { display: block; }
 
 /* New Year: characters and hats rest, lights and snow stay, closed screen gets fireworks */
 html[data-xmas="ny"] .xm-hat, html[data-xmas="ny"] .item-card::after, html[data-xmas="ny"] .category-heading::after,
@@ -61,3 +61,4 @@ html[data-xmas="ny"] #closed-screen .xm-nut { display: block; }
 .xm-sparks { display: none; position: fixed; left: 0; right: 0; top: 0; height: 300px; pointer-events: none; z-index: 55; }
 .xm-sparks span { position: absolute; opacity: .85; }
 html[data-xmas="ny"] #closed-screen.active .xm-sparks { display: block; }
+html[data-xmas="both"] #menu-screen.active .xm-sparks-menu { display: block; height: 150px; opacity: .8; }

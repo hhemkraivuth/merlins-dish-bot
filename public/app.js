@@ -343,6 +343,7 @@ async function init() {
 
   renderCategoryTabs();
   renderItemList();
+  renderIntroCard();
   wireStaticEvents();
   await loadSavedProfile();
   if (ANNOUNCEMENT) {
@@ -377,6 +378,55 @@ function showDirectOrderScreen() {
   const goToMenu = () => showScreen("menu-screen");
   document.getElementById("direct-order-modal-close").addEventListener("click", goToMenu, { once: true });
   document.getElementById("direct-order-modal-continue").addEventListener("click", goToMenu, { once: true });
+}
+
+
+// ---------- Welcome card for new visitors from Instagram and ads ----------
+// Only people who arrive through the Instagram link (?src=ig) or a Meta ad (?src=ad, ad2 ...) see it. LINE, the Grab
+// thank you cards, the LINE rich menu and plain web visits never do. It adds no step: it explains Merlin's in a few
+// lines and shows three dishes to start with. Tapping one scrolls the menu to that dish's normal card and flashes it.
+// To change the three picks, edit INTRO_PICKS. A pick that is not on the menu or is sold out is skipped.
+const INTRO_PICKS = [
+  { name: "Polished Pork Bolognese", tag: "Classic for a Reason", bg: "#fff", fg: "#E63D23" },
+  { name: "Red Wine Beef Stew", tag: "It's Bourguignon Baby", bg: "#F8CC1A", fg: "#1B2559" },
+  { name: "Braised Lamb Shank", tag: "Tender Enough for a Spoon", bg: "#63CBC6", fg: "#1B2559" },
+];
+function introAudience(src) { return src === "ig" || /^ad\d*$/.test(src); }
+function renderIntroCard() {
+  const card = document.getElementById("intro-card");
+  if (!card) return;
+  try { if (!introAudience(entrySource()) || sessionStorage.getItem("introClosed")) return; } catch (e) { return; }
+  const wrap = document.getElementById("intro-picks");
+  wrap.innerHTML = "";
+  INTRO_PICKS.forEach((p) => {
+    const dish = MENU.find((d) => d.name === p.name && d.available);
+    if (!dish) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "intro-pick";
+    b.innerHTML = `<span class="intro-pick-photo">${dish.image ? `<img class="intro-pick-img" src="${dish.image}" alt="" loading="lazy" />` : `<span class="intro-pick-img">🍽️</span>`}<span class="intro-pick-tag"></span></span><span class="intro-pick-name"></span><span class="intro-pick-price">฿${dish.price}</span>`;
+    const tg = b.querySelector(".intro-pick-tag");
+    tg.textContent = p.tag; tg.style.background = p.bg; tg.style.color = p.fg;
+    b.querySelector(".intro-pick-name").textContent = dish.name;
+    b.addEventListener("click", () => {
+      const el = document.querySelector(`.item-card[data-dish="${dish.id}"]`);
+      if (!el) return;
+      const y = el.getBoundingClientRect().top + window.scrollY - 300; // leaves room under the sticky tabs
+      window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+      el.classList.remove("intro-flash"); void el.offsetWidth; el.classList.add("intro-flash");
+    });
+    wrap.appendChild(b);
+  });
+  if (!wrap.children.length) return; // nothing to point at, so say nothing
+  document.getElementById("intro-menu").addEventListener("click", () => {
+    const list = document.getElementById("item-list");
+    if (list) window.scrollTo({ top: Math.max(0, list.getBoundingClientRect().top + window.scrollY - 130), behavior: "smooth" });
+  });
+  document.getElementById("intro-close").addEventListener("click", () => {
+    card.classList.add("hidden");
+    try { sessionStorage.setItem("introClosed", "1"); } catch (e) { /* skip */ }
+  }, { once: true });
+  card.classList.remove("hidden");
 }
 
 // ---------- menu rendering ----------

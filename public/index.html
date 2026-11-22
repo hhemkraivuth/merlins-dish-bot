@@ -77,6 +77,19 @@
 
   <p class="direct-order-banner">Order direct. Lower prices, free delivery within 2km, points on every order.</p>
 
+  <!-- First time visitors from Instagram and Meta ads only (see renderIntroCard in app.js). Hidden for everyone else. -->
+  <section id="intro-card" class="intro-card hidden" aria-label="Welcome to Merlin's Dish">
+    <button type="button" id="intro-close" class="intro-close" aria-label="Close">✕</button>
+    <img class="intro-logo" src="/logo.png" alt="Merlin's Dish" width="64" height="64" />
+    <p class="intro-eyebrow">First time here?</p>
+    <h2 class="intro-title">Hello, we're<br>Merlin's Dish.</h2>
+    <p class="intro-lead">Slow cooked comfort food from Bangkok, delivered to your door. Spoon recommended.</p>
+    <div class="intro-pills"><span>Slow cooked for 6 to 8 hours</span><span>AU beef and AU lamb</span><span>Pair with any pasta</span></div>
+    <p class="intro-start">Not sure? Start with a hug in a bowl</p>
+    <div id="intro-picks" class="intro-picks"></div>
+    <button type="button" id="intro-menu" class="intro-menu-btn">Hungry? See the whole menu ↓</button>
+  </section>
+
   <main id="item-list" class="item-list"></main>
 
   <footer id="menu-foot" class="menu-foot hidden">Questions? <a id="contact-us-btn" href="#" target="_blank" rel="noopener">Contact us</a></footer>

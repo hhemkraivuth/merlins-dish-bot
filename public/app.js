@@ -404,15 +404,17 @@ function renderIntroCard() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "intro-pick";
-    b.innerHTML = `<span class="intro-pick-photo">${dish.image ? `<img class="intro-pick-img" src="${dish.image}" alt="" loading="lazy" />` : `<span class="intro-pick-img">🍽️</span>`}<span class="intro-pick-tag"></span></span><span class="intro-pick-name"></span><span class="intro-pick-price">฿${dish.price}</span>`;
+    b.innerHTML = `<span class="intro-pick-photo">${dish.image ? `<img class="intro-pick-img" src="${String(dish.image).replace("/upload/", "/upload/w_400,h_400,c_fill,q_auto,f_auto/")}" alt="" />` : `<span class="intro-pick-img">🍽️</span>`}<span class="intro-pick-tag"></span></span><span class="intro-pick-name"></span><span class="intro-pick-price">฿${dish.price}</span>`;
     const tg = b.querySelector(".intro-pick-tag");
     tg.textContent = p.tag; tg.style.background = p.bg; tg.style.color = p.fg;
     b.querySelector(".intro-pick-name").textContent = dish.name;
     b.addEventListener("click", () => {
       const el = document.querySelector(`.item-card[data-dish="${dish.id}"]`);
       if (!el) return;
-      const y = el.getBoundingClientRect().top + window.scrollY - 300; // leaves room under the sticky tabs
-      window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+      const target = () => Math.max(0, el.getBoundingClientRect().top + window.scrollY - 300); // leaves room under the sticky tabs
+      window.scrollTo({ top: target(), behavior: "smooth" });
+      // Some in-app browsers skip smooth scrolling, so if it has not arrived shortly, jump there.
+      setTimeout(() => { if (Math.abs(el.getBoundingClientRect().top - 300) > 80) window.scrollTo({ top: target(), behavior: "auto" }); }, 900);
       el.classList.remove("intro-flash"); void el.offsetWidth; el.classList.add("intro-flash");
     });
     wrap.appendChild(b);
